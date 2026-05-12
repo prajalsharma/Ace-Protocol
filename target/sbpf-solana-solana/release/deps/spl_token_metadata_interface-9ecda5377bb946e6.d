@@ -1,0 +1,10 @@
+/home/user/computer/ace-protocol/target/sbpf-solana-solana/release/deps/spl_token_metadata_interface-9ecda5377bb946e6.d: /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spl-token-metadata-interface-0.3.5/src/lib.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spl-token-metadata-interface-0.3.5/src/error.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spl-token-metadata-interface-0.3.5/src/instruction.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spl-token-metadata-interface-0.3.5/src/state.rs
+
+/home/user/computer/ace-protocol/target/sbpf-solana-solana/release/deps/spl_token_metadata_interface-9ecda5377bb946e6.so: /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spl-token-metadata-interface-0.3.5/src/lib.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spl-token-metadata-interface-0.3.5/src/error.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spl-token-metadata-interface-0.3.5/src/instruction.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spl-token-metadata-interface-0.3.5/src/state.rs
+
+/home/user/computer/ace-protocol/target/sbpf-solana-solana/release/deps/libspl_token_metadata_interface-9ecda5377bb946e6.rlib: /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spl-token-metadata-interface-0.3.5/src/lib.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spl-token-metadata-interface-0.3.5/src/error.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spl-token-metadata-interface-0.3.5/src/instruction.rs /root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spl-token-metadata-interface-0.3.5/src/state.rs
+
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spl-token-metadata-interface-0.3.5/src/lib.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spl-token-metadata-interface-0.3.5/src/error.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spl-token-metadata-interface-0.3.5/src/instruction.rs:
+/root/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/spl-token-metadata-interface-0.3.5/src/state.rs:
