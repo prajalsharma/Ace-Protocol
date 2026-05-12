@@ -68,14 +68,21 @@ export function nowSec() {
 }
 
 function getJwtSecret(): string {
-  const secret = process.env.JWT_SECRET ?? process.env.ACE_JWT_SECRET ?? '';
-  if (!secret) {
-    if (process.env.NODE_ENV === 'production') {
-      throw new Error('JWT_SECRET environment variable is not set. Add it to Vercel → Environment Variables.');
-    }
-    return 'ace-dev-secret-not-for-production';
+  // Prefer an explicit JWT_SECRET. Fall back to a HMAC of the Privy app secret
+  // so the server never throws just because JWT_SECRET wasn't explicitly set.
+  const explicit = process.env.JWT_SECRET ?? process.env.ACE_JWT_SECRET ?? '';
+  if (explicit) return explicit;
+
+  // Derive from PRIVY_APP_SECRET so deploys work without a separate JWT_SECRET env var.
+  const privySecret = process.env.PRIVY_APP_SECRET ?? '';
+  if (privySecret) {
+    return crypto.createHmac('sha256', privySecret).update('ace-jwt-secret-v1').digest('hex');
   }
-  return secret;
+
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('PRIVY_APP_SECRET (or JWT_SECRET) environment variable is not set.');
+  }
+  return 'ace-dev-secret-not-for-production';
 }
 
 function getPrivyCredentials(): { appId: string; appSecret: string } {
@@ -91,8 +98,7 @@ function getPrivyCredentials(): { appId: string; appSecret: string } {
 
 function getPrivyClient(): PrivyClient {
   const { appId, appSecret } = getPrivyCredentials();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return new PrivyClient({ appId, appSecret } as any);
+  return new PrivyClient({ appId, appSecret });
 }
 
 
