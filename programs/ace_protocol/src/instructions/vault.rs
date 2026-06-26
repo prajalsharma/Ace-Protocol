@@ -191,18 +191,23 @@ pub fn withdraw(ctx: Context<Withdraw>, amount_lamports: u64) -> Result<()> {
         require!(new_reserve_bps >= Vault::MIN_RESERVE_BPS, AceError::ReserveTooLow);
     }
 
-    // Transfer lamports from vault PDA back to owner using PDA signer
-    let seeds = &[b"vault" as &[u8], owner_key.as_ref(), &[vault_bump]];
-    let signer = &[&seeds[..]];
-    let cpi_ctx = CpiContext::new_with_signer(
-        ctx.accounts.system_program.to_account_info(),
-        system_program::Transfer {
-            from: ctx.accounts.vault.to_account_info(),
-            to: ctx.accounts.owner.to_account_info(),
-        },
-        signer,
-    );
-    system_program::transfer(cpi_ctx, amount_lamports)?;
+    // The vault PDA is owned by this program, so the System Program cannot debit
+    // it via a CPI transfer. Move lamports by directly adjusting account balances.
+    // The vault's rent-exempt reserve is untouched: amount_lamports <= liquid
+    // <= total_lamports, and the PDA always holds rent + total_lamports.
+    let _ = (owner_key, vault_bump); // PDA signer no longer required for the debit
+    {
+        let vault_ai = ctx.accounts.vault.to_account_info();
+        let owner_ai = ctx.accounts.owner.to_account_info();
+        let mut vault_lamports = vault_ai.try_borrow_mut_lamports()?;
+        let mut owner_lamports = owner_ai.try_borrow_mut_lamports()?;
+        **vault_lamports = vault_lamports
+            .checked_sub(amount_lamports)
+            .ok_or(AceError::InsufficientFunds)?;
+        **owner_lamports = owner_lamports
+            .checked_add(amount_lamports)
+            .ok_or(AceError::Overflow)?;
+    }
 
     let vault = &mut ctx.accounts.vault;
     vault.total_lamports = vault.total_lamports.saturating_sub(amount_lamports);

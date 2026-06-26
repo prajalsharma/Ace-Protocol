@@ -9,6 +9,7 @@ import {
   getLiveProviders,
   buildStakeRecommendations,
   buildDevnetStakeMarkerDescription,
+  type StakingProviderId,
 } from '@/lib/staking/stakingProviders';
 import crypto from 'crypto';
 
@@ -48,7 +49,7 @@ export async function POST(req: NextRequest) {
   if (!session) return NextResponse.json({ error: 'unauthorized' }, { status: 401 });
 
   const body = await req.json() as {
-    provider: 'hylo' | 'jito';
+    provider: StakingProviderId;
     amountUsd: number;
     devnetTxSig?: string;
   };
