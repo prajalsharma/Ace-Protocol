@@ -426,7 +426,7 @@ export default function DashboardPage() {
             <StatCard
               label="Idle Yield Capital"
               value={formatUsd(vault.yieldBalance)}
-              sub={vault.yieldBalance > 0 ? 'Restake across aggregators · live on SolBlaze' : 'No idle capital'}
+              sub={vault.yieldBalance > 0 ? 'Restaked into bSOL · live on SolBlaze' : 'No idle capital'}
               accentColor="var(--teal)"
               icon={TrendingUp}
               onClick={() => router.push('/staking')}
@@ -459,7 +459,7 @@ export default function DashboardPage() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-[15px] font-semibold" style={{ color: 'var(--text-primary)' }}>
-                    {formatUsd(vault.yieldBalance)} sitting idle — ACE restakes it across aggregators, live on SolBlaze
+                    {formatUsd(vault.yieldBalance)} sitting idle — ACE restakes it into bSOL on SolBlaze
                   </p>
                   <p className="text-[13px] mt-1" style={{ color: 'var(--text-muted)' }}>
                     Liquid staking &amp; restaking · bSOL on SolBlaze today · No lockup · Sign once

@@ -21,28 +21,19 @@ export function accrueDeterministicYield(
 }
 
 export function getDefaultYieldStrategies(vault: Vault): YieldStrategy[] {
+  // ACE is live on SolBlaze. Idle yield capital is restaked into bSOL through
+  // the SolBlaze stake pool — the single active venue surfaced post-login.
   return [
     {
-      id: 'strat-hylo-stable',
-      name: 'Harbor Reserve Yield',
-      protocol: 'Hylo-compatible',
-      apy: 8.4,
-      tvl: 48_200_000,
-      riskScore: 3,
+      id: 'strat-solblaze-bsol',
+      name: 'SolBlaze Liquid Staking',
+      protocol: 'SolBlaze · bSOL',
+      apy: 6.0,
+      tvl: 120_000_000,
+      riskScore: 2,
       isActive: true,
       allocatedAmount: Number(vault.yieldBalance.toFixed(2)),
-      description: 'Reserve-safe stablecoin deployment for idle capital.',
-    },
-    {
-      id: 'strat-sol-liquid',
-      name: 'Voyage Staking',
-      protocol: 'Liquid Staking',
-      apy: 6.9,
-      tvl: 210_000_000,
-      riskScore: 2,
-      isActive: vault.allocation.yield >= 55,
-      allocatedAmount: Number((vault.yieldBalance * 0.42).toFixed(2)),
-      description: 'Conservative Solana staking exposure for protocol treasuries.',
+      description: 'Idle yield restaked into bSOL through the SolBlaze stake pool. Liquid — instant unstake, no lockup.',
     },
   ];
 }

@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { motion, useInView, useScroll, useTransform } from 'framer-motion';
 import { useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
@@ -301,7 +302,7 @@ function ModeCard({
    Integration card — premium 4×2 grid
 ───────────────────────────────────────────────────────────────────────────── */
 
-function IntCard({ name, tag, color, desc }: { name: string; tag: string; color: string; desc: string }) {
+function IntCard({ name, tag, color, desc, logo }: { name: string; tag: string; color: string; desc: string; logo?: string }) {
   return (
     <motion.div
       whileHover={{ y: -3, transition: { duration: 0.22, ease: [0.16, 1, 0.3, 1] } }}
@@ -317,9 +318,14 @@ function IntCard({ name, tag, color, desc }: { name: string; tag: string; color:
       <div className="absolute inset-x-0 top-0 h-px rounded-t-[20px] opacity-0 group-hover:opacity-100 transition-opacity duration-300"
         style={{ background: `linear-gradient(90deg, transparent, ${color}55, transparent)` }} />
       <div className="flex items-center justify-between">
-        <div className="flex h-10 w-10 items-center justify-center rounded-xl relative"
+        <div className="flex h-10 w-10 items-center justify-center rounded-xl relative overflow-hidden"
           style={{ background: `${color}13`, border: `1px solid ${color}22` }}>
-          <span className="relative h-3 w-3 rounded-full" style={{ background: color, boxShadow: `0 0 10px ${color}88` }} />
+          {logo ? (
+            <Image src={logo} alt={`${name} logo`} width={40} height={40}
+              className="h-10 w-10 object-cover" style={{ borderRadius: '0.75rem' }} />
+          ) : (
+            <span className="relative h-3 w-3 rounded-full" style={{ background: color, boxShadow: `0 0 10px ${color}88` }} />
+          )}
         </div>
         <span className="text-[10px] font-semibold uppercase tracking-[0.15em] px-2.5 py-1 rounded-full"
           style={{ background: `${color}12`, color, border: `1px solid ${color}22` }}>
@@ -391,8 +397,7 @@ export default function LandingPage() {
     { name: 'Cloak',    tag: 'Privacy',     color: '#a855f7', desc: 'Private transfers with stealth addressing for sensitive payrolls.' },
     { name: 'QVAC',     tag: 'Local AI',    color: '#2de0a0', desc: 'On-device AI inference for private treasury analysis, no data leaves.' },
     { name: 'Ika',      tag: 'MPC custody', color: '#fb923c', desc: 'Threshold signature custody for institutional-grade key management.' },
-    { name: 'Jito',     tag: 'Execution',   color: '#ef4444', desc: 'MEV-protected transaction execution with bundle optimization.' },
-    { name: 'SolBlaze', tag: 'Restaking',   color: '#f97316', desc: 'Live — idle yield restaked into bSOL through the SolBlaze stake pool. Jito & Hylo coming soon.' },
+    { name: 'SolBlaze', tag: 'Live · Restaking', color: '#f97316', logo: '/solblaze.png', desc: 'Live integration — idle yield is restaked into bSOL through the SolBlaze stake pool. Liquid, no lockup, instant unstake.' },
     { name: 'Encrypt',  tag: 'E2E encrypt', color: '#818cf8', desc: 'End-to-end encrypted payment instructions and policy storage.' },
   ];
 
@@ -994,7 +999,7 @@ export default function LandingPage() {
 
                 <div className="mt-14 flex flex-wrap items-center justify-center gap-5 text-[11px] font-medium"
                   style={{ color: 'rgba(255,255,255,0.18)' }}>
-                  {['Solana', '·', 'Jupiter', '·', 'Helius', '·', 'Jito', '·', 'QVAC', '·', 'Cloak'].map((n, i) => (
+                  {['Solana', '·', 'Jupiter', '·', 'Helius', '·', 'SolBlaze', '·', 'QVAC', '·', 'Cloak'].map((n, i) => (
                     <span key={i}>{n}</span>
                   ))}
                 </div>

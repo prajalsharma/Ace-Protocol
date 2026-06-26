@@ -41,7 +41,7 @@ let _log: LogEntry[] = [
     timestamp: Math.floor(Date.now() / 1000) - 1800,
     type: 'yield',
     message: 'Yield harvested: $87.40',
-    detail: 'Horizon Yield strategy. Auto-compounded into yield bucket.',
+    detail: 'SolBlaze bSOL restaking. Auto-compounded into yield bucket.',
   },
 ];
 
