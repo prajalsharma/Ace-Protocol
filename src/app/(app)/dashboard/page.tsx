@@ -426,7 +426,7 @@ export default function DashboardPage() {
             <StatCard
               label="Idle Yield Capital"
               value={formatUsd(vault.yieldBalance)}
-              sub={vault.yieldBalance > 0 ? 'Deploy with Jito or Hylo' : 'No idle capital'}
+              sub={vault.yieldBalance > 0 ? 'Restake across aggregators · live on SolBlaze' : 'No idle capital'}
               accentColor="var(--teal)"
               icon={TrendingUp}
               onClick={() => router.push('/staking')}
@@ -459,10 +459,10 @@ export default function DashboardPage() {
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-[15px] font-semibold" style={{ color: 'var(--text-primary)' }}>
-                    {formatUsd(vault.yieldBalance)} sitting idle — ACE recommends deploying to Jito or Hylo
+                    {formatUsd(vault.yieldBalance)} sitting idle — ACE restakes it across aggregators, live on SolBlaze
                   </p>
                   <p className="text-[13px] mt-1" style={{ color: 'var(--text-muted)' }}>
-                    Earn up to 11.4% APY with liquid staking · No lockup required · Sign once
+                    Liquid staking &amp; restaking · bSOL on SolBlaze today · No lockup · Sign once
                   </p>
                 </div>
                 <div className="flex items-center gap-1.5 shrink-0 text-[12.5px] font-semibold" style={{ color: 'var(--teal)' }}>

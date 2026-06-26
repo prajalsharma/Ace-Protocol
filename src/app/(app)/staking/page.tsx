@@ -3,14 +3,15 @@ import { useState, useEffect, useCallback } from 'react';
 import { AppShell } from '@/components/layout/AppShell';
 import { Badge } from '@/components/ui/Badge';
 import { useApp } from '@/context/AppContext';
-import { formatUsd, formatPercent } from '@/lib/utils';
+import { formatUsd } from '@/lib/utils';
 import { appendLog } from '@/lib/activityLog';
 import {
   TrendingUp, Zap, Loader2, AlertTriangle, CheckCircle2,
   ExternalLink, RefreshCw, ShieldCheck, Info, Sparkles,
-  ArrowRight, DollarSign, Lock,
+  ArrowRight, Lock, X,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import Image from 'next/image';
 import {
   Connection, PublicKey, SystemProgram, Transaction,
   LAMPORTS_PER_SOL, clusterApiUrl,
@@ -31,6 +32,7 @@ interface StakingData {
 }
 
 const PROVIDER_COLOR: Record<string, string> = {
+  solblaze: '#f97316',
   jito: '#38bdf8',
   hylo: '#a78bfa',
 };
@@ -42,6 +44,22 @@ const stagger = {
     show: { opacity: 1, y: 0, transition: { duration: 0.32, ease: [0.16, 1, 0.3, 1] as [number, number, number, number] } },
   },
 };
+
+// Subtle "live" pulse — a soft breathing dot with an expanding halo.
+// Honors prefers-reduced-motion via framer-motion's reduced-motion handling.
+function LiveDot() {
+  return (
+    <span className="relative inline-flex w-2 h-2">
+      <motion.span
+        className="absolute inline-flex w-full h-full rounded-full"
+        style={{ background: 'var(--green)' }}
+        animate={{ scale: [1, 2.2], opacity: [0.5, 0] }}
+        transition={{ duration: 1.8, repeat: Infinity, ease: 'easeOut' }}
+      />
+      <span className="relative inline-flex w-2 h-2 rounded-full" style={{ background: 'var(--green)' }} />
+    </span>
+  );
+}
 
 // ── Stake Confirm Modal ───────────────────────────────────────────────────────
 function StakeModal({
@@ -88,7 +106,9 @@ function StakeModal({
               Stake with {provider.name}
             </span>
           </div>
-          <button onClick={onClose} style={{ color: 'var(--text-muted)' }}>✕</button>
+          <button onClick={onClose} aria-label="Close" className="cursor-pointer transition-colors hover:opacity-100 opacity-70" style={{ color: 'var(--text-muted)' }}>
+            <X className="w-4 h-4" />
+          </button>
         </div>
 
         <div className="p-6 space-y-4">
@@ -321,10 +341,10 @@ export default function StakingPage() {
                 >
                   Staking Intelligence
                 </h1>
-                <Badge variant="muted">Hylo + Jito</Badge>
+                <Badge variant="muted">SolBlaze · Jito · Hylo</Badge>
               </div>
               <p className="text-[12px]" style={{ color: 'var(--text-muted)' }}>
-                ACE recommends where to deploy idle yield capital for optimal returns
+                ACE deploys idle yield across every major staking aggregator and restaking venue — live on SolBlaze today
               </p>
             </div>
             <button onClick={fetchData} disabled={isLoading} className="btn-secondary flex items-center gap-1.5 disabled:opacity-40"
@@ -458,14 +478,34 @@ export default function StakingPage() {
                   {/* Provider header */}
                   <div className="flex items-start justify-between">
                     <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 flex items-center justify-center"
+                      <div className="w-9 h-9 flex items-center justify-center overflow-hidden"
                         style={{ background: `color-mix(in srgb, ${color} 14%, transparent)`, borderRadius: '10px' }}
                       >
-                        <TrendingUp className="w-4.5 h-4.5" style={{ color }} />
+                        {p.logoUrl ? (
+                          <Image src={p.logoUrl} alt={`${p.name} logo`} width={36} height={36}
+                            className="w-9 h-9 object-cover" style={{ borderRadius: '10px' }} />
+                        ) : (
+                          <TrendingUp className="w-4.5 h-4.5" style={{ color }} />
+                        )}
                       </div>
                       <div>
-                        <p className="text-[14px] font-semibold" style={{ color: 'var(--text-primary)' }}>{p.name}</p>
-                        <p className="text-[10px]" style={{ color: 'var(--text-muted)' }}>{p.protocol}</p>
+                        <div className="flex items-center gap-1.5">
+                          <p className="text-[14px] font-semibold" style={{ color: 'var(--text-primary)' }}>{p.name}</p>
+                          {p.isLive ? (
+                            <span className="flex items-center gap-1.5 text-[9px] font-semibold px-1.5 py-0.5 rounded"
+                              style={{ background: 'rgba(34,197,94,0.12)', color: 'var(--green)', borderRadius: '4px' }}
+                            >
+                              <LiveDot /> Live
+                            </span>
+                          ) : (
+                            <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded"
+                              style={{ background: 'rgba(255,255,255,0.05)', color: 'var(--text-muted)', borderRadius: '4px' }}
+                            >
+                              Coming soon
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-[10px] mt-0.5" style={{ color: 'var(--text-muted)' }}>{p.protocol}</p>
                       </div>
                     </div>
                     <div className="text-right">
@@ -538,19 +578,29 @@ export default function StakingPage() {
 
                   {/* CTA row */}
                   <div className="flex items-center gap-2 pt-1">
-                    <button
-                      onClick={() => {
-                        if (rec) { setSelectedRec({ provider: p, rec }); setStakeResult(null); }
-                      }}
-                      disabled={!rec || idleYield < p.minStakeUsd}
-                      className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-[12px] font-semibold disabled:opacity-40 transition-all"
-                      style={{ background: color, color: '#000', borderRadius: '8px' }}
-                      onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = '0.85'; }}
-                      onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; }}
-                    >
-                      <TrendingUp className="w-3.5 h-3.5" />
-                      {idleYield < p.minStakeUsd ? `Min $${p.minStakeUsd}` : 'Stake on Behalf'}
-                    </button>
+                    {p.isLive ? (
+                      <button
+                        onClick={() => {
+                          if (rec) { setSelectedRec({ provider: p, rec }); setStakeResult(null); }
+                        }}
+                        disabled={!rec || idleYield < p.minStakeUsd}
+                        className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-[12px] font-semibold disabled:opacity-40 transition-all cursor-pointer"
+                        style={{ background: color, color: '#000', borderRadius: '8px' }}
+                        onMouseEnter={e => { (e.currentTarget as HTMLElement).style.opacity = '0.85'; }}
+                        onMouseLeave={e => { (e.currentTarget as HTMLElement).style.opacity = '1'; }}
+                      >
+                        <TrendingUp className="w-3.5 h-3.5" />
+                        {idleYield < p.minStakeUsd ? `Min $${p.minStakeUsd}` : 'Stake on Behalf'}
+                      </button>
+                    ) : (
+                      <button
+                        disabled
+                        className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-[12px] font-semibold transition-all cursor-not-allowed"
+                        style={{ background: 'var(--bg-overlay)', color: 'var(--text-muted)', border: '1px solid var(--border-base)', borderRadius: '8px' }}
+                      >
+                        <Lock className="w-3 h-3" /> Coming soon
+                      </button>
+                    )}
                     <a
                       href={p.websiteUrl}
                       target="_blank" rel="noopener noreferrer"

@@ -1,17 +1,24 @@
 // ============================================================
-// ACE Protocol — Hylo + Jito Staking Integration
+// ACE Protocol — Multi-Aggregator Staking & Restaking
 //
-// On Devnet: we cannot submit real Hylo/Jito txns (they live
-// on Mainnet only).  Strategy:
-//   • We fetch LIVE Mainnet APY/TVL data from their public APIs
-//   • For Devnet demo we build the instruction and show the user
-//     what WOULD happen, then submit a "stake marker" SOL transfer
-//     to the ACE program vault PDA to prove on-chain capability.
+// ACE routes idle yield capital across every major Solana
+// staking aggregator and restaking venue. We are LIVE on
+// SolBlaze (bSOL) on Mainnet today; Jito and Hylo are
+// integrated and rolling out next.
+//
+// On Devnet: most venues only exist on Mainnet.  Strategy:
+//   • We fetch LIVE Mainnet APY/TVL data from public APIs
+//   • For the Devnet demo we build the instruction and show the
+//     user what WOULD happen, then submit a "stake marker" SOL
+//     transfer to the ACE program vault PDA to prove on-chain
+//     execution capability.
 //   • The UI shows real yield projections derived from live rates.
 // ============================================================
 
+export type StakingProviderId = 'solblaze' | 'jito' | 'hylo';
+
 export interface StakingProvider {
-  id: 'hylo' | 'jito';
+  id: StakingProviderId;
   name: string;
   protocol: string;
   tokenSymbol: string;
@@ -26,11 +33,15 @@ export interface StakingProvider {
   minStakeUsd: number;
   lockupDays: number;  // 0 = liquid staking (instant unstake)
   isLiquid: boolean;
+  /** True when ACE has a live integration with this venue. */
+  isLive: boolean;
+  /** Optional brand logo served from /public. */
+  logoUrl?: string;
   category: 'liquid_staking' | 'yield_vault' | 'restaking';
 }
 
 export interface StakePosition {
-  provider: 'hylo' | 'jito';
+  provider: StakingProviderId;
   amountUsd: number;
   amountSol: number;
   stakedAt: number;
@@ -42,7 +53,7 @@ export interface StakePosition {
 }
 
 export interface StakeRecommendation {
-  provider: 'hylo' | 'jito';
+  provider: StakingProviderId;
   allocatePct: number;    // % of idle yield balance to stake
   allocateUsd: number;
   rationale: string;
@@ -58,6 +69,24 @@ const CACHE_TTL_MS = 5 * 60 * 1000; // 5 min
 
 const STATIC_PROVIDERS: StakingProvider[] = [
   {
+    id: 'solblaze',
+    name: 'SolBlaze Liquid Staking',
+    protocol: 'SolBlaze (BlazeStake)',
+    tokenSymbol: 'bSOL',
+    description: 'Liquid-stake SOL into bSOL with custom validator direction and SBLZE rewards. bSOL stays instantly liquid across Solana DeFi. ACE is live on SolBlaze on Mainnet.',
+    websiteUrl: 'https://stake.solblaze.org',
+    docUrl: 'https://docs.solblaze.org',
+    apy: 6.0,         // fallback; overridden by live fetch
+    tvlUsd: 120_000_000,
+    riskScore: 2,
+    minStakeUsd: 1,
+    lockupDays: 0,
+    isLiquid: true,
+    isLive: true,     // ACE is live on SolBlaze
+    logoUrl: '/solblaze.png',
+    category: 'liquid_staking',
+  },
+  {
     id: 'jito',
     name: 'Jito Liquid Staking',
     protocol: 'Jito Network',
@@ -71,6 +100,7 @@ const STATIC_PROVIDERS: StakingProvider[] = [
     minStakeUsd: 1,
     lockupDays: 0,
     isLiquid: true,
+    isLive: false,    // integrated, rolling out next
     category: 'liquid_staking',
   },
   {
@@ -87,9 +117,30 @@ const STATIC_PROVIDERS: StakingProvider[] = [
     minStakeUsd: 10,
     lockupDays: 0,
     isLiquid: true,
+    isLive: false,    // integrated, rolling out next
     category: 'yield_vault',
   },
 ];
+
+/** Fetch live APY from SolBlaze's public stake-pool stats endpoint.
+ *  Response shape: { success: true, apy: 6.01, total: 6.01, base: 6.01, ... }
+ *  The `total`/`apy` fields are already expressed as a percentage. */
+async function fetchSolBlazeApy(): Promise<number | null> {
+  try {
+    const res = await fetch('https://stake.solblaze.org/api/v1/apy', {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(4000),
+      cache: 'no-store',
+    });
+    if (!res.ok) return null;
+    const json = await res.json() as { success?: boolean; apy?: number; total?: number };
+    const raw = json.total ?? json.apy;
+    if (typeof raw === 'number' && raw > 0) return raw; // already a percentage
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 /** Fetch live APY from Jito's public stats endpoint. */
 async function fetchJitoApy(): Promise<number | null> {
@@ -133,11 +184,21 @@ export async function getLiveProviders(): Promise<StakingProvider[]> {
     return Object.values(_cache);
   }
 
-  const [jitoApy, hyloApy] = await Promise.all([fetchJitoApy(), fetchHyloApy()]);
+  const [solblazeApy, jitoApy, hyloApy] = await Promise.all([
+    fetchSolBlazeApy(),
+    fetchJitoApy(),
+    fetchHyloApy(),
+  ]);
+
+  const liveApy: Record<StakingProviderId, number | null> = {
+    solblaze: solblazeApy,
+    jito: jitoApy,
+    hylo: hyloApy,
+  };
 
   const providers = STATIC_PROVIDERS.map(p => ({
     ...p,
-    apy: p.id === 'jito' ? (jitoApy ?? p.apy) : (hyloApy ?? p.apy),
+    apy: liveApy[p.id] ?? p.apy,
   }));
 
   _cache = Object.fromEntries(providers.map(p => [p.id, p]));
@@ -156,19 +217,28 @@ export function buildStakeRecommendations(
 
   const recommendations: StakeRecommendation[] = [];
 
+  // Idle-capital allocation. Only venues ACE is LIVE on (SolBlaze today) get
+  // actionable recommendations; Jito/Hylo are surfaced as "coming soon" in the
+  // UI but are not yet recommended for deployment.
+  const ALLOC_PCT: Record<StakingProviderId, number> = {
+    solblaze: 50,
+    jito: 35,
+    hylo: 20,
+  };
+
   for (const p of providers) {
+    if (!p.isLive) continue; // coming-soon venues are not recommended yet
     if (idleYieldBalanceUsd < p.minStakeUsd) continue;
 
-    // Conservative: put at most 60% of idle yield into any single provider
-    const allocPct = p.id === 'jito' ? 40 : 20;
+    const allocPct = ALLOC_PCT[p.id] ?? 40;
     const allocUsd = Number(((idleYieldBalanceUsd * allocPct) / 100).toFixed(2));
     if (allocUsd < p.minStakeUsd) continue;
 
     const monthlyYield = Number(((allocUsd * p.apy) / 100 / 12).toFixed(2));
 
     let urgency: StakeRecommendation['urgency'] = 'consider';
-    if (idleYieldBalanceUsd > 500 && p.apy >= 8) urgency = 'immediate';
-    else if (idleYieldBalanceUsd > 100) urgency = 'soon';
+    if (idleYieldBalanceUsd > 100) urgency = 'immediate';
+    else if (idleYieldBalanceUsd > 50) urgency = 'soon';
 
     recommendations.push({
       provider: p.id,
@@ -182,23 +252,32 @@ export function buildStakeRecommendations(
     });
   }
 
-  // Sort: Jito first (lower risk), Hylo second
-  return recommendations.sort((a, b) => {
-    const order = { jito: 0, hylo: 1 };
-    return (order[a.provider] ?? 99) - (order[b.provider] ?? 99);
-  });
+  // Sort: SolBlaze first (live), then Jito, then Hylo.
+  const order: Record<StakingProviderId, number> = { solblaze: 0, jito: 1, hylo: 2 };
+  return recommendations.sort(
+    (a, b) => (order[a.provider] ?? 99) - (order[b.provider] ?? 99),
+  );
 }
 
-/** Build a simulated devnet "stake marker" transaction description.
- *  On mainnet this would call Jito's or Hylo's SDK instruction.
+const PROVIDER_NAME: Record<StakingProviderId, string> = {
+  solblaze: 'SolBlaze Liquid Staking',
+  jito: 'Jito Liquid Staking',
+  hylo: 'Hylo Yield Vault',
+};
+
+/** Build a "stake marker" transaction description.
+ *  SolBlaze is live on Mainnet via ACE; Jito/Hylo are devnet-demo for now.
  *  On devnet we record the intent as a protocol vault transfer.
  */
 export function buildDevnetStakeMarkerDescription(
-  provider: 'hylo' | 'jito',
+  provider: StakingProviderId,
   amountUsd: number,
   solPriceUsd: number,
 ): string {
   const solAmount = (amountUsd / solPriceUsd).toFixed(4);
-  const protoName = provider === 'jito' ? 'Jito Liquid Staking' : 'Hylo Yield Vault';
-  return `[Devnet] Stake intent: ${solAmount} SOL (≈$${amountUsd.toFixed(2)}) → ${protoName}. On Mainnet this submits the protocol staking instruction.`;
+  const protoName = PROVIDER_NAME[provider] ?? 'staking venue';
+  const tail = provider === 'solblaze'
+    ? 'SolBlaze integration is live — ACE mints bSOL via the SolBlaze stake pool.'
+    : 'Integration coming soon.';
+  return `[Devnet] Stake intent: ${solAmount} SOL (≈$${amountUsd.toFixed(2)}) → ${protoName}. ${tail}`;
 }

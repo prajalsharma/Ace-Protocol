@@ -1,5 +1,4 @@
 use anchor_lang::prelude::*;
-use anchor_lang::system_program;
 use crate::errors::AceError;
 use crate::state::{Payment, ProtocolConfig, Vault};
 
@@ -235,19 +234,23 @@ pub fn execute_payment(ctx: Context<ExecutePayment>) -> Result<()> {
         require!(pay_amount <= vault_cap, AceError::ExceedsSpendCap);
     }
 
-    // Transfer from vault PDA to recipient
-    let seeds = &[b"vault" as &[u8], vault_owner_key.as_ref(), &[vault_bump]];
-    let signer = &[&seeds[..]];
-
-    let cpi_ctx = CpiContext::new_with_signer(
-        ctx.accounts.system_program.to_account_info(),
-        system_program::Transfer {
-            from: ctx.accounts.vault.to_account_info(),
-            to: ctx.accounts.recipient.to_account_info(),
-        },
-        signer,
-    );
-    system_program::transfer(cpi_ctx, pay_amount)?;
+    // The vault PDA is owned by this program, so the System Program cannot debit
+    // it via a CPI transfer. Move lamports by directly adjusting account balances.
+    // pay_amount was already reserved out of a bucket at schedule time and is
+    // bounded by total_lamports, so the PDA's rent-exempt reserve stays intact.
+    let _ = (vault_owner_key, vault_bump); // PDA signer no longer required for the debit
+    {
+        let vault_ai = ctx.accounts.vault.to_account_info();
+        let recipient_ai = ctx.accounts.recipient.to_account_info();
+        let mut vault_lamports = vault_ai.try_borrow_mut_lamports()?;
+        let mut recipient_lamports = recipient_ai.try_borrow_mut_lamports()?;
+        **vault_lamports = vault_lamports
+            .checked_sub(pay_amount)
+            .ok_or(AceError::InsufficientFunds)?;
+        **recipient_lamports = recipient_lamports
+            .checked_add(pay_amount)
+            .ok_or(AceError::Overflow)?;
+    }
 
     // Update vault totals
     ctx.accounts.vault.total_lamports =

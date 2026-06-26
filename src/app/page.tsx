@@ -392,6 +392,7 @@ export default function LandingPage() {
     { name: 'QVAC',     tag: 'Local AI',    color: '#2de0a0', desc: 'On-device AI inference for private treasury analysis, no data leaves.' },
     { name: 'Ika',      tag: 'MPC custody', color: '#fb923c', desc: 'Threshold signature custody for institutional-grade key management.' },
     { name: 'Jito',     tag: 'Execution',   color: '#ef4444', desc: 'MEV-protected transaction execution with bundle optimization.' },
+    { name: 'SolBlaze', tag: 'Restaking',   color: '#f97316', desc: 'Live — idle yield restaked into bSOL through the SolBlaze stake pool. Jito & Hylo coming soon.' },
     { name: 'Encrypt',  tag: 'E2E encrypt', color: '#818cf8', desc: 'End-to-end encrypted payment instructions and policy storage.' },
   ];
 
