@@ -238,7 +238,9 @@ function StakeModal({
 export default function StakingPage() {
   const { vault, sessionToken, refreshVault } = useApp();
   const { address: walletAddress, sendTransaction, connected } = useSolanaWallet();
-  const solanaWallet = connected && walletAddress ? { address: walletAddress, sendTransaction } : null;
+  const solanaWallet = connected && walletAddress && sendTransaction
+    ? { address: walletAddress, sendTransaction }
+    : null;
 
   const [data, setData] = useState<StakingData | null>(null);
   const [isLoading, setIsLoading] = useState(false);

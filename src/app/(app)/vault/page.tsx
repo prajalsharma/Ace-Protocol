@@ -33,7 +33,9 @@ const stagger = {
 export default function VaultPage() {
   const { vault, strategies, isLoading, updateVault, addTransaction, sessionToken, refreshVault } = useApp();
   const { address: walletAddress, sendTransaction, connected } = useSolanaWallet();
-  const solanaWallet = connected && walletAddress ? { address: walletAddress, sendTransaction } : null;
+  const solanaWallet = connected && walletAddress && sendTransaction
+    ? { address: walletAddress, sendTransaction }
+    : null;
 
   const [depositAmt, setDepositAmt] = useState('');
   const [withdrawAmt, setWithdrawAmt] = useState('');
