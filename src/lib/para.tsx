@@ -21,7 +21,7 @@
 // ============================================================
 
 import React, {
-  createContext, useCallback, useContext, useMemo,
+  createContext, useCallback, useContext, useEffect, useMemo, useState,
 } from 'react';
 import {
   ParaProvider, Environment,
@@ -32,14 +32,17 @@ import { useWallet } from '@solana/wallet-adapter-react';
 
 // ─── Config ──────────────────────────────────────────────────────────────────
 
-const PARA_API_KEY = process.env.NEXT_PUBLIC_PARA_API_KEY ?? '';
-// Only treat the key as usable if it has a real Para environment prefix.
-const HAS_VALID_KEY = /^(beta|prod)_/.test(PARA_API_KEY);
+// Build-time inlined key (fast path). May be empty if the env var wasn't
+// present at build — in that case AuthProvider fetches it at runtime.
+const BUILD_TIME_KEY = process.env.NEXT_PUBLIC_PARA_API_KEY ?? '';
 
-const PARA_ENV =
-  (process.env.NEXT_PUBLIC_PARA_ENVIRONMENT ?? 'BETA').toUpperCase() === 'PROD'
-    ? Environment.PROD
-    : Environment.BETA;
+const isValidKey = (k: string | null | undefined): k is string =>
+  typeof k === 'string' && /^(beta|prod)_/.test(k);
+
+const toEnv = (raw: string | null | undefined): Environment =>
+  (raw ?? 'BETA').toUpperCase() === 'PROD' ? Environment.PROD : Environment.BETA;
+
+const BUILD_TIME_ENV = toEnv(process.env.NEXT_PUBLIC_PARA_ENVIRONMENT);
 
 const MAINNET_RPC =
   process.env.NEXT_PUBLIC_SOLANA_MAINNET_RPC ??
@@ -155,9 +158,21 @@ function ParaBridge({ children }: { children: React.ReactNode }) {
 
 // ─── Disconnected provider (no Para) ─────────────────────────────────────────
 
-function DisconnectedProvider({ children }: { children: React.ReactNode }) {
+function DisconnectedProvider({
+  children, checking = false,
+}: { children: React.ReactNode; checking?: boolean }) {
+  const value = useMemo<AuthState>(() => {
+    if (!checking) return DISCONNECTED_AUTH;
+    // Still resolving the runtime key — don't scare the user with an alert.
+    return {
+      ...DISCONNECTED_AUTH,
+      ready: false,
+      login: () => console.info('[Para] Initialising wallet login — try again in a moment.'),
+    };
+  }, [checking]);
+
   return (
-    <AuthContext.Provider value={DISCONNECTED_AUTH}>
+    <AuthContext.Provider value={value}>
       <WalletContext.Provider value={DISCONNECTED_WALLET}>{children}</WalletContext.Provider>
     </AuthContext.Provider>
   );
@@ -181,24 +196,18 @@ class ParaErrorBoundary extends React.Component<
   }
 }
 
-// ─── Public provider ─────────────────────────────────────────────────────────
+// ─── Para stack (mounted once a usable key is resolved) ──────────────────────
 
-export function AuthProvider({ children }: { children: React.ReactNode }) {
-  // No usable key → skip Para entirely; the app still renders (disconnected).
-  if (!HAS_VALID_KEY) {
-    return <DisconnectedProvider>{children}</DisconnectedProvider>;
-  }
-
+function ParaStack({
+  apiKey, env, children,
+}: { apiKey: string; env: Environment; children: React.ReactNode }) {
   return (
     <ParaErrorBoundary fallback={<DisconnectedProvider>{children}</DisconnectedProvider>}>
       <ParaProvider
         // Render children as soon as the client exists; the app gates on
         // `ready` (useParaStatus) itself in WalletGate/AppContext.
         waitForReady={false}
-        paraClientConfig={{
-          apiKey: PARA_API_KEY,
-          env: PARA_ENV,
-        }}
+        paraClientConfig={{ apiKey, env }}
         externalWalletConfig={{
           // Solana wallets only — no EVM/Cosmos wallets.
           wallets: ['PHANTOM', 'SOLFLARE', 'BACKPACK'],
@@ -233,4 +242,41 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       </ParaProvider>
     </ParaErrorBoundary>
   );
+}
+
+// ─── Public provider ─────────────────────────────────────────────────────────
+
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  // Fast path: key inlined at build time. Otherwise fetch it from the server at
+  // runtime (via /api/para-config) so a Vercel build that missed the env var —
+  // build cache, wrong env scope, var added after the build — still works
+  // without a rebuild.
+  const [apiKey, setApiKey] = useState<string | null>(isValidKey(BUILD_TIME_KEY) ? BUILD_TIME_KEY : null);
+  const [env, setEnv] = useState<Environment>(BUILD_TIME_ENV);
+  // Whether the runtime key lookup has finished (true immediately if we already
+  // have a build-time key, so there's no lookup to wait for).
+  const [resolved, setResolved] = useState<boolean>(isValidKey(BUILD_TIME_KEY));
+
+  useEffect(() => {
+    if (isValidKey(apiKey)) return; // already have a usable key
+    let cancelled = false;
+    fetch('/api/para-config')
+      .then((r) => r.json())
+      .then((cfg: { apiKey?: string; environment?: string }) => {
+        if (cancelled) return;
+        if (isValidKey(cfg?.apiKey)) {
+          setEnv(toEnv(cfg.environment));
+          setApiKey(cfg.apiKey);
+        }
+      })
+      .catch(() => { /* stay disconnected */ })
+      .finally(() => { if (!cancelled) setResolved(true); });
+    return () => { cancelled = true; };
+  }, [apiKey]);
+
+  if (!isValidKey(apiKey)) {
+    return <DisconnectedProvider checking={!resolved}>{children}</DisconnectedProvider>;
+  }
+
+  return <ParaStack apiKey={apiKey} env={env}>{children}</ParaStack>;
 }
