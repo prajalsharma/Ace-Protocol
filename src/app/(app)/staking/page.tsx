@@ -16,7 +16,7 @@ import {
   Connection, PublicKey, SystemProgram, Transaction,
   LAMPORTS_PER_SOL, clusterApiUrl,
 } from '@solana/web3.js';
-import { useSolanaWallets } from '@privy-io/react-auth';
+import { useSolanaWallet } from '@/lib/para';
 import type { StakingProvider, StakeRecommendation } from '@/lib/staking/stakingProviders';
 
 const RPC = process.env.NEXT_PUBLIC_SOLANA_RPC ?? clusterApiUrl('devnet');
@@ -237,8 +237,8 @@ function StakeModal({
 
 export default function StakingPage() {
   const { vault, sessionToken, refreshVault } = useApp();
-  const { wallets: solanaWallets } = useSolanaWallets();
-  const solanaWallet = solanaWallets[0] ?? null;
+  const { address: walletAddress, sendTransaction, connected } = useSolanaWallet();
+  const solanaWallet = connected && walletAddress ? { address: walletAddress, sendTransaction } : null;
 
   const [data, setData] = useState<StakingData | null>(null);
   const [isLoading, setIsLoading] = useState(false);

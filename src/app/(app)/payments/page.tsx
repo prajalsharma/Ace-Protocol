@@ -17,7 +17,7 @@ import {
   Connection, PublicKey, SystemProgram, Transaction,
   LAMPORTS_PER_SOL, clusterApiUrl,
 } from '@solana/web3.js';
-import { useSolanaWallets } from '@privy-io/react-auth';
+import { useSolanaWallet } from '@/lib/para';
 import type { QueueItem } from '@/app/api/protocol/queue/route';
 
 const PROGRAM_ID = 'DS5K9htMgTtUZGHvRiZZQER8ZX6PMHB79zuK7qB4ZmZY';
@@ -441,8 +441,8 @@ function QueueRow({
 
 export default function PaymentsPage() {
   const { sessionToken, vault, refreshVault } = useApp();
-  const { wallets: solanaWallets } = useSolanaWallets();
-  const solanaWallet = solanaWallets[0] ?? null;
+  const { address: walletAddress, sendTransaction, connected } = useSolanaWallet();
+  const solanaWallet = connected && walletAddress ? { address: walletAddress, sendTransaction } : null;
 
   const [queueData, setQueueData] = useState<QueueResponse | null>(null);
   const [isLoadingQueue, setIsLoadingQueue] = useState(false);

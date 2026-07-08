@@ -5,7 +5,7 @@ import Image from 'next/image';
 import { motion, useInView, useScroll, useTransform } from 'framer-motion';
 import { useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { usePrivy, useSolanaWallets } from '@privy-io/react-auth';
+import { useAuth, useSolanaWallet } from '@/lib/para';
 import {
   ArrowRight, BrainCircuit, ChevronRight, Clock3, LockKeyhole,
   AlertTriangle, GitBranch, Eye, ShieldOff, ShieldCheck, Zap, Bot,
@@ -81,14 +81,14 @@ function SectionLabel({ children, teal }: { children: React.ReactNode; teal?: bo
 }
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   Wallet button — real Privy integration preserved
+   Wallet button — real Para integration preserved
 ───────────────────────────────────────────────────────────────────────────── */
 
 function ConnectButton({ size = 'default' }: { size?: 'default' | 'lg' }) {
   const router = useRouter();
-  const { authenticated, login, ready } = usePrivy();
-  const { wallets } = useSolanaWallets();
-  const connected = authenticated && wallets.length > 0;
+  const { authenticated, login, ready } = useAuth();
+  const { address } = useSolanaWallet();
+  const connected = authenticated && !!address;
 
   useEffect(() => {
     if (connected) router.push('/dashboard');
@@ -119,7 +119,7 @@ function ConnectButton({ size = 'default' }: { size?: 'default' | 'lg' }) {
 }
 
 function NavLoginWrapper() {
-  const { login } = usePrivy();
+  const { login } = useAuth();
   return <WalletScanner onLogin={login} />;
 }
 

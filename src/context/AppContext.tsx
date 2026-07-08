@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
-import { usePrivy, useSolanaWallets } from '@privy-io/react-auth';
+import { useAuth, useSolanaWallet } from '@/lib/para';
 import type {
   CashflowInsight,
   DashboardSummary,
@@ -111,12 +111,10 @@ function getEmptyDataState(
 // ─── Provider ───────────────────────────────────────────────────────────────
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
-  // ── Privy auth ──────────────────────────────────────────────────────────
-  const { authenticated, getAccessToken, logout, ready: privyReady } = usePrivy();
-  const { wallets: solanaWallets } = useSolanaWallets();
+  // ── Para auth ───────────────────────────────────────────────────────────
+  const { authenticated, getAccessToken, logout, ready: authReady } = useAuth();
+  const { address: walletAddress } = useSolanaWallet();
 
-  const solanaWallet = solanaWallets[0] ?? null;
-  const walletAddress = solanaWallet?.address ?? null;
   const isConnected = authenticated && !!walletAddress;
 
   // ── Protocol store (Zustand — persisted UI state) ──────────────────────
@@ -213,14 +211,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    // 3. Get a fresh Privy access token and exchange it for our session JWT
-    const privyToken = await getAccessToken();
-    if (!privyToken) throw new Error('Privy session unavailable. Please reconnect your wallet.');
+    // 3. Get a fresh Para access token (JWT) and exchange it for our session JWT
+    const paraToken = await getAccessToken();
+    if (!paraToken) throw new Error('Para session unavailable. Please reconnect your wallet.');
 
     const res = await fetch('/api/auth/session', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ privyToken, wallet: walletAddress }),
+      body: JSON.stringify({ paraToken, wallet: walletAddress }),
     });
 
     const text = await res.text();
@@ -300,14 +298,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const loadDataRef = useRef(loadData);
   loadDataRef.current = loadData;
 
-  // Re-run when Privy auth state, the active wallet, or selected network changes.
+  // Re-run when Para auth state, the active wallet, or selected network changes.
   // Network change triggers full state wipe + re-fetch automatically.
   useEffect(() => {
-    if (!privyReady) return;
+    if (!authReady) return;
     const timer = window.setTimeout(() => { void loadDataRef.current(); }, 80);
     return () => window.clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [privyReady, isConnected, walletAddress, network]);
+  }, [authReady, isConnected, walletAddress, network]);
 
   useEffect(() => {
     if (isConnected) setSimulationModeStore(false);

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { usePrivy } from '@privy-io/react-auth';
+import { useAuth } from '@/lib/para';
 import { AceMark } from '@/components/brand/AceMark';
 import { useApp } from '@/context/AppContext';
 import { RefreshCw, LogOut, Loader2, Unplug, AlertTriangle } from 'lucide-react';
@@ -17,10 +17,10 @@ function classifyError(err: string): { title: string; hint: string; canRetry: bo
       canRetry: false,
     };
   }
-  if (lower.includes('privy session') || lower.includes('reconnect')) {
+  if (lower.includes('para session') || lower.includes('reconnect')) {
     return {
       title: 'Session unavailable',
-      hint: 'Your Privy session ended. Disconnect and reconnect your wallet.',
+      hint: 'Your Para session ended. Disconnect and reconnect your wallet.',
       canRetry: false,
     };
   }
@@ -62,7 +62,7 @@ function classifyError(err: string): { title: string; hint: string; canRetry: bo
 
 export function WalletGate({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const { authenticated, ready: privyReady, login, logout } = usePrivy();
+  const { authenticated, ready: authReady, login, logout } = useAuth();
   const { isLoading, isSessionReady, sessionError, refreshVault, disconnectWallet } = useApp();
 
   const [loadingTooLong, setLoadingTooLong] = useState(false);
@@ -72,8 +72,8 @@ export function WalletGate({ children }: { children: React.ReactNode }) {
     return () => clearTimeout(timer);
   }, [isLoading]);
 
-  // Privy is still hydrating — render nothing to avoid flash
-  if (!privyReady) return null;
+  // Para is still hydrating — render nothing to avoid flash
+  if (!authReady) return null;
 
   // Not authenticated — redirect to landing
   if (!authenticated) {

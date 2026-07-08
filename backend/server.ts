@@ -20,13 +20,13 @@ async function main() {
 
   server.get('/health', async () => ({ status: 'healthy', service: 'ace-backend' }));
 
-  // Auth is handled by Privy + /api/auth/session (Next.js route).
+  // Auth is handled by Para + /api/auth/session (Next.js route).
   // These stubs return 410 so any legacy clients get a clear message.
   server.post('/auth/nonce', async (_req, reply) =>
-    reply.code(410).send({ error: 'Deprecated. Auth is handled by Privy.' }),
+    reply.code(410).send({ error: 'Deprecated. Auth is handled by Para.' }),
   );
   server.post('/auth/verify', async (_req, reply) =>
-    reply.code(410).send({ error: 'Deprecated. Auth is handled by Privy.' }),
+    reply.code(410).send({ error: 'Deprecated. Auth is handled by Para.' }),
   );
 
   server.get('/auth/session', async (request, reply) => {
