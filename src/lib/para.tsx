@@ -205,42 +205,56 @@ class ParaErrorBoundary extends React.Component<
 function ParaStack({
   apiKey, env, children,
 }: { apiKey: string; env: Environment; children: React.ReactNode }) {
+  // Para re-creates its client whenever `paraClientConfig` changes by reference,
+  // and re-inits the wallet connector when its config identity changes — that
+  // would abort an in-progress wallet connection. Keep all config objects
+  // referentially stable so a stray re-render can't interrupt connecting.
+  type ParaProps = React.ComponentProps<typeof ParaProvider>;
+
+  const paraClientConfig = useMemo<ParaProps['paraClientConfig']>(
+    () => ({ apiKey, env }), [apiKey, env],
+  );
+
+  const externalWalletConfig = useMemo<ParaProps['externalWalletConfig']>(() => ({
+    // Solana wallets only — no EVM/Cosmos wallets.
+    wallets: ['PHANTOM', 'SOLFLARE', 'BACKPACK'],
+    solanaConnector: {
+      config: {
+        endpoint: MAINNET_RPC,
+        chain: 'mainnet-beta',
+        appIdentity: {
+          name: 'ACE Protocol',
+          uri: typeof window !== 'undefined' ? window.location.origin : undefined,
+        },
+      },
+    },
+    // Validate a signature from the connected wallet and create a Para session —
+    // required for issuing session JWTs to the backend.
+    includeWalletVerification: true,
+  }), []);
+
+  const paraModalConfig = useMemo<ParaProps['paraModalConfig']>(() => ({
+    // Wallet-only — show the external wallet connect screen (Phantom / Solflare
+    // / Backpack), not email/social auth.
+    authLayout: ['EXTERNAL:FULL'],
+    theme: {
+      mode: 'dark',
+      backgroundColor: '#08060f',
+      foregroundColor: '#f0ecff',
+      accentColor: '#9d5cff',
+    },
+    logo: '/icon.svg',
+  }), []);
+
   return (
     <ParaErrorBoundary fallback={<DisconnectedProvider>{children}</DisconnectedProvider>}>
       <ParaProvider
         // Render children as soon as the client exists; the app gates on
         // `ready` (useParaStatus) itself in WalletGate/AppContext.
         waitForReady={false}
-        paraClientConfig={{ apiKey, env }}
-        externalWalletConfig={{
-          // Solana wallets only — no EVM/Cosmos wallets.
-          wallets: ['PHANTOM', 'SOLFLARE', 'BACKPACK'],
-          solanaConnector: {
-            config: {
-              endpoint: MAINNET_RPC,
-              chain: 'mainnet-beta',
-              appIdentity: {
-                name: 'ACE Protocol',
-                uri: typeof window !== 'undefined' ? window.location.origin : undefined,
-              },
-            },
-          },
-          // Validate a signature from the connected wallet and create a Para
-          // session — required for issuing session JWTs to the backend.
-          includeWalletVerification: true,
-        }}
-        paraModalConfig={{
-          // Wallet-only — show the external wallet connect screen (Phantom /
-          // Solflare / Backpack), not email/social auth.
-          authLayout: ['EXTERNAL:FULL'],
-          theme: {
-            mode: 'dark',
-            backgroundColor: '#08060f',
-            foregroundColor: '#f0ecff',
-            accentColor: '#9d5cff',
-          },
-          logo: '/icon.svg',
-        }}
+        paraClientConfig={paraClientConfig}
+        externalWalletConfig={externalWalletConfig}
+        paraModalConfig={paraModalConfig}
       >
         <ParaBridge>{children}</ParaBridge>
       </ParaProvider>
