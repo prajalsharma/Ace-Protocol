@@ -25,7 +25,7 @@ import React, {
 } from 'react';
 import {
   ParaProvider, Environment,
-  useAccount, useModal, useLogout, useIssueJwt, useParaStatus,
+  useModal, useLogout, useIssueJwt, useParaStatus, useIsFullyLoggedIn,
 } from '@getpara/react-sdk';
 import '@getpara/react-sdk/styles.css';
 import { useWallet } from '@solana/wallet-adapter-react';
@@ -103,8 +103,12 @@ export function useSolanaWallet(): SolanaWalletState {
 // ─── Bridge: calls Para hooks, publishes to context ──────────────────────────
 
 function ParaBridge({ children }: { children: React.ReactNode }) {
-  const account = useAccount();
   const { isReady } = useParaStatus();
+  // "Fully logged in" = the Para session/verification is complete. This — not a
+  // bare wallet connection — is the prerequisite for issuing a JWT, so gate the
+  // app's `authenticated` on it. Otherwise the app tries to mint a backend JWT
+  // the instant the wallet connects and Para throws "user needs to be logged in".
+  const { data: fullyLoggedIn } = useIsFullyLoggedIn();
   const { openModal } = useModal();
   const { logoutAsync } = useLogout();
   const { issueJwtAsync } = useIssueJwt();
@@ -140,8 +144,8 @@ function ParaBridge({ children }: { children: React.ReactNode }) {
   }, [issueJwtAsync]);
 
   const authValue = useMemo<AuthState>(
-    () => ({ authenticated: Boolean(account?.isConnected), ready: isReady, login, logout, getAccessToken }),
-    [account?.isConnected, isReady, login, logout, getAccessToken],
+    () => ({ authenticated: Boolean(fullyLoggedIn), ready: isReady, login, logout, getAccessToken }),
+    [fullyLoggedIn, isReady, login, logout, getAccessToken],
   );
 
   const walletValue = useMemo<SolanaWalletState>(
