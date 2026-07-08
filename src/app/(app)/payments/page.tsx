@@ -442,7 +442,9 @@ function QueueRow({
 export default function PaymentsPage() {
   const { sessionToken, vault, refreshVault } = useApp();
   const { address: walletAddress, sendTransaction, connected } = useSolanaWallet();
-  const solanaWallet = connected && walletAddress ? { address: walletAddress, sendTransaction } : null;
+  const solanaWallet = connected && walletAddress && sendTransaction
+    ? { address: walletAddress, sendTransaction }
+    : null;
 
   const [queueData, setQueueData] = useState<QueueResponse | null>(null);
   const [isLoadingQueue, setIsLoadingQueue] = useState(false);
