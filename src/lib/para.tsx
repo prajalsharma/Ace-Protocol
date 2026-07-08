@@ -71,7 +71,10 @@ const DISCONNECTED_AUTH: AuthState = {
   ready: true,
   login: () => {
     if (typeof window !== 'undefined') {
-      console.warn('[Para] Not configured — set NEXT_PUBLIC_PARA_API_KEY to enable wallet login.');
+      const msg = 'Wallet login is not configured. Set NEXT_PUBLIC_PARA_API_KEY (and NEXT_PUBLIC_PARA_ENVIRONMENT) and redeploy.';
+      console.warn('[Para] ' + msg);
+      // Visible feedback so the button never appears "dead".
+      window.alert(msg);
     }
   },
   logout: async () => {},
@@ -105,7 +108,20 @@ function ParaBridge({ children }: { children: React.ReactNode }) {
   const wallet = useWallet();
   const { publicKey, sendTransaction, connected, disconnect } = wallet;
 
-  const login = useCallback(() => openModal(), [openModal]);
+  const login = useCallback(() => {
+    // The Para modal is only mounted once the SDK reaches `isReady` (i.e. the
+    // API key validated for this origin). If it isn't ready, openModal() is a
+    // silent no-op — surface why so it isn't a mystery.
+    if (!isReady) {
+      const origin = typeof window !== 'undefined' ? window.location.origin : '(server)';
+      console.warn(
+        `[Para] Connect modal not ready — the SDK has not initialised. ` +
+        `Verify NEXT_PUBLIC_PARA_API_KEY + NEXT_PUBLIC_PARA_ENVIRONMENT, and that "${origin}" ` +
+        `is added to your API key's allowed domains at https://developer.getpara.com.`,
+      );
+    }
+    openModal();
+  }, [openModal, isReady]);
 
   const logout = useCallback(async () => {
     try {
@@ -201,6 +217,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           includeWalletVerification: true,
         }}
         paraModalConfig={{
+          // Wallet-only — show the external wallet connect screen (Phantom /
+          // Solflare / Backpack), not email/social auth.
+          authLayout: ['EXTERNAL:FULL'],
           theme: {
             mode: 'dark',
             backgroundColor: '#08060f',
