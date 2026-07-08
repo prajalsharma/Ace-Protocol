@@ -25,7 +25,7 @@ import React, {
 } from 'react';
 import {
   ParaProvider, Environment,
-  useModal, useLogout, useIssueJwt, useParaStatus, useIsFullyLoggedIn,
+  useModal, useLogout, useIssueJwt, useParaStatus, useIsFullyLoggedIn, useWalletState,
 } from '@getpara/react-sdk';
 import '@getpara/react-sdk/styles.css';
 import { useWallet } from '@solana/wallet-adapter-react';
@@ -114,6 +114,10 @@ function ParaBridge({ children }: { children: React.ReactNode }) {
   const { issueJwtAsync } = useIssueJwt();
   const wallet = useWallet();
   const { publicKey, sendTransaction, connected, disconnect } = wallet;
+  // Para's currently-selected wallet — works for BOTH embedded (email/phone/
+  // social login) and external wallets, so the session address resolves
+  // regardless of how the user signed in.
+  const { selectedWallet } = useWalletState();
 
   const login = useCallback(() => {
     // The Para modal is only mounted once the SDK reaches `isReady` (i.e. the
@@ -149,8 +153,16 @@ function ParaBridge({ children }: { children: React.ReactNode }) {
   );
 
   const walletValue = useMemo<SolanaWalletState>(
-    () => ({ address: publicKey?.toBase58() ?? null, sendTransaction, connected }),
-    [publicKey, sendTransaction, connected],
+    () => ({
+      // Prefer Para's selected-wallet address (covers embedded + external);
+      // fall back to the wallet-adapter public key for external connections.
+      address: selectedWallet?.address ?? publicKey?.toBase58() ?? null,
+      // sendTransaction is the external wallet-adapter path; embedded-wallet
+      // signing uses a different (web3.js v2) API the on-chain flows don't use yet.
+      sendTransaction,
+      connected,
+    }),
+    [selectedWallet?.address, publicKey, sendTransaction, connected],
   );
 
   return (
@@ -234,9 +246,9 @@ function ParaStack({
   }), []);
 
   const paraModalConfig = useMemo<ParaProps['paraModalConfig']>(() => ({
-    // Wallet-only — show the external wallet connect screen (Phantom / Solflare
-    // / Backpack), not email/social auth.
-    authLayout: ['EXTERNAL:FULL'],
+    // Full auth: email + phone (OTP) + social signup AND external wallets
+    // (Phantom / Solflare / Backpack).
+    authLayout: ['AUTH:FULL', 'EXTERNAL:FULL'],
     theme: {
       mode: 'dark',
       backgroundColor: '#08060f',
