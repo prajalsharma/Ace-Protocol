@@ -1,71 +1,91 @@
 'use client';
 // ============================================================
 // ACE Protocol — Top-level Providers
-// Privy handles wallet connection, auth, and session management.
+// Para (getpara.com) handles wallet connection, auth, and session
+// management. Its external-wallet connector mounts the standard
+// @solana/wallet-adapter-react providers, so the connected Solana
+// wallet is available app-wide via useWallet().
 //
-// IMPORTANT: PrivyProvider must be mounted ONCE with a static config.
+// IMPORTANT: ParaProvider must be mounted ONCE with a static config.
 // Do NOT read dynamic state (Zustand, useState, etc.) inside this
-// component — remounting PrivyProvider mid-session destroys the
-// Solana connector context and causes "Unsupported account" errors.
+// component — remounting ParaProvider mid-session destroys the
+// Solana connector context and the wallet connection.
 //
 // Network switching is handled entirely at the AppContext/API layer
-// via the `?network=` query param — Privy does not need to change.
-// Both clusters are declared upfront so Privy accepts either.
+// via the `?network=` query param. The connector endpoint below only
+// backs the wallet-adapter Connection; each on-chain action builds its
+// own Connection from NEXT_PUBLIC_SOLANA_RPC.
 // ============================================================
 
 import React from 'react';
-import { PrivyProvider } from '@privy-io/react-auth';
-import { toSolanaWalletConnectors } from '@privy-io/react-auth/solana';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { ParaProvider, Environment } from '@getpara/react-sdk';
+import '@getpara/react-sdk/styles.css';
 import { AppProvider } from '@/context/AppContext';
 
-const PRIVY_APP_ID  = process.env.NEXT_PUBLIC_PRIVY_APP_ID ?? '';
-const MAINNET_RPC   =
+const PARA_API_KEY = process.env.NEXT_PUBLIC_PARA_API_KEY ?? '';
+// BETA (devnet/testing) vs PROD. Defaults to BETA to match devnet usage.
+const PARA_ENV =
+  (process.env.NEXT_PUBLIC_PARA_ENVIRONMENT ?? 'BETA').toUpperCase() === 'PROD'
+    ? Environment.PROD
+    : Environment.BETA;
+
+const MAINNET_RPC =
   process.env.NEXT_PUBLIC_SOLANA_MAINNET_RPC ??
   process.env.NEXT_PUBLIC_SOLANA_RPC ??
   'https://api.mainnet-beta.solana.com';
-const DEVNET_RPC    =
-  process.env.NEXT_PUBLIC_SOLANA_DEVNET_RPC ??
-  'https://api.devnet.solana.com';
+
+// The wallet-adapter Connection endpoint. Kept on mainnet to match the
+// app's default network; on-chain actions override this per-call.
+const CONNECTOR_ENDPOINT = MAINNET_RPC;
+
+const queryClient = new QueryClient();
 
 export function Providers({ children }: { children: React.ReactNode }) {
-  // During SSR / static build NEXT_PUBLIC_PRIVY_APP_ID is not available.
-  // Skip PrivyProvider so the build doesn't crash — auth runs client-side only.
-  if (!PRIVY_APP_ID) {
-    return <AppProvider>{children}</AppProvider>;
-  }
-
+  // ParaProvider is ALWAYS mounted so its store context exists during SSR /
+  // static prerendering — Para's hooks (useAccount, etc.) throw if the
+  // provider is missing. When NEXT_PUBLIC_PARA_API_KEY is absent (e.g. a build
+  // without env), a placeholder key keeps the provider mountable; auth simply
+  // won't function until a real key is supplied at runtime.
+  // waitForReady={false} lets children render immediately (SSR-safe) — the app
+  // gates on `ready` via useParaStatus() in WalletGate/AppContext instead.
   return (
-    <PrivyProvider
-      appId={PRIVY_APP_ID}
-      config={{
-        // Wallet-only login — no email/social
-        loginMethods: ['wallet'],
-        appearance: {
-          theme: 'dark',
-          accentColor: '#9d5cff',
-          logo: '/icon.svg',
-          showWalletLoginFirst: true,
-          // Solana wallets only — no EVM wallets
-          walletList: ['phantom', 'solflare', 'backpack'],
-        },
-        externalWallets: {
-          solana: {
-            connectors: toSolanaWalletConnectors({ shouldAutoConnect: true }),
+    <QueryClientProvider client={queryClient}>
+      <ParaProvider
+        waitForReady={false}
+        paraClientConfig={{
+          apiKey: PARA_API_KEY || 'para_placeholder_key',
+          env: PARA_ENV,
+        }}
+        externalWalletConfig={{
+          // Solana wallets only — no EVM/Cosmos wallets
+          wallets: ['PHANTOM', 'SOLFLARE', 'BACKPACK'],
+          solanaConnector: {
+            config: {
+              endpoint: CONNECTOR_ENDPOINT,
+              chain: 'mainnet-beta',
+              appIdentity: {
+                name: 'ACE Protocol',
+                uri: typeof window !== 'undefined' ? window.location.origin : undefined,
+              },
+            },
           },
-        },
-        // Declare both clusters statically so Privy never tries EVM fallback.
-        // The active network is controlled by AppContext, not by Privy config.
-        solanaClusters: [
-          { name: 'mainnet-beta', rpcUrl: MAINNET_RPC },
-          { name: 'devnet',       rpcUrl: DEVNET_RPC  },
-        ],
-        // Do NOT auto-create embedded wallets — users must bring their own
-        embeddedWallets: {
-          createOnLogin: 'off',
-        },
-      }}
-    >
-      <AppProvider>{children}</AppProvider>
-    </PrivyProvider>
+          // Validate a signature from the connected wallet and create a
+          // Para session — required for issuing session JWTs to the backend.
+          includeWalletVerification: true,
+        }}
+        paraModalConfig={{
+          theme: {
+            mode: 'dark',
+            backgroundColor: '#08060f',
+            foregroundColor: '#f0ecff',
+            accentColor: '#9d5cff',
+          },
+          logo: '/icon.svg',
+        }}
+      >
+        <AppProvider>{children}</AppProvider>
+      </ParaProvider>
+    </QueryClientProvider>
   );
 }

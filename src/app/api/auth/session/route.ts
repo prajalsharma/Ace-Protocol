@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createSessionFromPrivyToken, getSessionFromAuthHeader } from '@root/services/sessionService';
+import { createSessionFromParaToken, getSessionFromAuthHeader } from '@root/services/sessionService';
 
 // GET — validate an existing session JWT
 export async function GET(req: NextRequest) {
@@ -10,19 +10,19 @@ export async function GET(req: NextRequest) {
   return NextResponse.json(session);
 }
 
-// POST — exchange a Privy access token for a session JWT
+// POST — exchange a Para JWT for a session JWT
 export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null) as {
-    privyToken?: string;
+    paraToken?: string;
     wallet?: string;
   } | null;
 
-  if (!body?.privyToken || !body.wallet) {
-    return NextResponse.json({ error: 'privyToken and wallet are required' }, { status: 400 });
+  if (!body?.paraToken || !body.wallet) {
+    return NextResponse.json({ error: 'paraToken and wallet are required' }, { status: 400 });
   }
 
   try {
-    const session = await createSessionFromPrivyToken(body.privyToken, body.wallet);
+    const session = await createSessionFromParaToken(body.paraToken, body.wallet);
     return NextResponse.json(session);
   } catch (error) {
     return NextResponse.json(

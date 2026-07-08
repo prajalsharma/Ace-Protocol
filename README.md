@@ -50,7 +50,7 @@ The vault PDA is derived per wallet: `[Buffer("vault"), owner.toBuffer()]` again
 
 - Next.js 16 (App Router, Turbopack)
 - Solana / Anchor — `@coral-xyz/anchor`, `@solana/web3.js`
-- Privy — wallet auth and embedded wallets
+- Para (getpara.com) — wallet auth, session management, and external wallet connectors
 - Helius RPC — real on-chain transaction data
 - Jupiter Developer Platform — Swap V2, Price, Recurring, Trigger
 - Cloak SDK — `@cloak.dev/sdk` — shielded USDC/USDT transfers
@@ -67,7 +67,7 @@ The vault PDA is derived per wallet: `[Buffer("vault"), owner.toBuffer()]` again
 ### Prerequisites
 
 - Node.js 20+
-- A Privy app ID (get one at [privy.io](https://privy.io))
+- A Para API key (get one at [developer.getpara.com](https://developer.getpara.com))
 - A Helius API key (get one at [helius.dev](https://helius.dev))
 - A Jupiter Developer Platform API key ([developers.jup.ag](https://developers.jup.ag))
 
@@ -76,11 +76,18 @@ The vault PDA is derived per wallet: `[Buffer("vault"), owner.toBuffer()]` again
 Create a `.env.local` in the project root:
 
 ```
-NEXT_PUBLIC_PRIVY_APP_ID=your_privy_app_id
+NEXT_PUBLIC_PARA_API_KEY=your_para_api_key
+NEXT_PUBLIC_PARA_ENVIRONMENT=BETA   # BETA (devnet/testing) or PROD
 HELIUS_API_KEY=your_helius_key
 JUPITER_API_KEY=your_jupiter_key
 NEXT_PUBLIC_SOLANA_RPC=https://mainnet.helius-rpc.com/?api-key=your_helius_key
 ```
+
+> The backend verifies Para session JWTs against Para's JWKS. Set
+> `PARA_ENVIRONMENT` (server-side, defaults to the value of
+> `NEXT_PUBLIC_PARA_ENVIRONMENT`) so it selects the matching JWKS endpoint.
+> Optionally set `JWT_SECRET` to sign ACE session tokens; if unset it is
+> derived from `PARA_API_KEY`.
 
 ### Install and run
 

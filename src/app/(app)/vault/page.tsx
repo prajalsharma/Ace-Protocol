@@ -16,7 +16,7 @@ import {
   Connection, PublicKey, SystemProgram, Transaction,
   LAMPORTS_PER_SOL, clusterApiUrl,
 } from '@solana/web3.js';
-import { usePrivy, useSolanaWallets } from '@privy-io/react-auth';
+import { useSolanaWallet } from '@/lib/para';
 
 const PROGRAM_ID = 'DS5K9htMgTtUZGHvRiZZQER8ZX6PMHB79zuK7qB4ZmZY';
 const EXPLORER_BASE = 'https://explorer.solana.com';
@@ -32,8 +32,8 @@ const stagger = {
 
 export default function VaultPage() {
   const { vault, strategies, isLoading, updateVault, addTransaction, sessionToken, refreshVault } = useApp();
-  const { wallets: solanaWallets } = useSolanaWallets();
-  const solanaWallet = solanaWallets[0] ?? null;
+  const { address: walletAddress, sendTransaction, connected } = useSolanaWallet();
+  const solanaWallet = connected && walletAddress ? { address: walletAddress, sendTransaction } : null;
 
   const [depositAmt, setDepositAmt] = useState('');
   const [withdrawAmt, setWithdrawAmt] = useState('');
@@ -41,7 +41,7 @@ export default function VaultPage() {
   const [txFeedback, setTxFeedback] = useState<{ type: 'success' | 'error' | 'info'; msg: string; txSig?: string } | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
 
-  // ── Real devnet deposit via Privy sendTransaction ─────────────────────────
+  // ── Real devnet deposit via Para wallet sendTransaction ───────────────────
   const handleDeposit = useCallback(async () => {
     const amount = parseFloat(depositAmt);
     if (!vault || isNaN(amount) || amount <= 0) return;
@@ -101,7 +101,7 @@ export default function VaultPage() {
         }),
       );
 
-      // Send via Privy's wallet adapter (triggers wallet signing UI)
+      // Send via the connected wallet adapter (triggers wallet signing UI)
       const txSig = await solanaWallet.sendTransaction(tx, connection);
 
       // Wait for confirmation

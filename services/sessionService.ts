@@ -1,27 +1,29 @@
 // ============================================================
 // ACE Protocol — Session Service
 //
-// Auth flow with Privy:
-//   1. Client authenticates with Privy (wallet sign handled by Privy)
-//   2. Client sends Privy access token + wallet address to POST /api/auth/session
-//   3. Server verifies the Privy token using @privy-io/server-auth,
-//      confirms the wallet is linked to that Privy user,
-//      and issues a short-lived session JWT signed with JWT_SECRET.
+// Auth flow with Para (getpara.com):
+//   1. Client authenticates with Para (wallet connect + verification).
+//   2. Client issues a Para JWT (useIssueJwt) and sends it + the wallet
+//      address to POST /api/auth/session.
+//   3. Server verifies the Para JWT against Para's JWKS (ES256 public
+//      keys), confirms the wallet is present in the token's claims, and
+//      issues a short-lived session JWT signed with JWT_SECRET.
 //   4. Client uses the session JWT as Bearer token for all API routes.
-//   5. Protected routes verify the session JWT locally (no Privy API call).
+//   5. Protected routes verify the session JWT locally (no Para API call).
 //
 // This means:
-//   - Only ONE Privy API call per session (at login), not per request
-//   - All subsequent API calls are fast JWT verifications
-//   - Works perfectly on Vercel serverless (fully stateless)
+//   - Only signature/JWKS verification per login (keys are cached), not per request
+//   - All subsequent API calls are fast local JWT verifications
+//   - Works on Vercel serverless (fully stateless)
 // ============================================================
 
 import crypto from 'crypto';
-import { PrivyClient } from '@privy-io/node';
+import jwt from 'jsonwebtoken';
+import { JwksClient } from 'jwks-rsa';
 import { backendConfig } from '@root/backend/config';
 import type { WalletSession } from '@root/src/types';
 
-// ─── JWT helpers (pure Node.js crypto) ──────────────────────────────────────
+// ─── JWT helpers (pure Node.js crypto) — our own session token ──────────────
 
 function base64url(input: Buffer | string): string {
   const buf = typeof input === 'string' ? Buffer.from(input) : input;
@@ -68,39 +70,102 @@ export function nowSec() {
 }
 
 function getJwtSecret(): string {
-  // Prefer an explicit JWT_SECRET. Fall back to a HMAC of the Privy app secret
+  // Prefer an explicit JWT_SECRET. Fall back to an HMAC of the Para API key
   // so the server never throws just because JWT_SECRET wasn't explicitly set.
   const explicit = process.env.JWT_SECRET ?? process.env.ACE_JWT_SECRET ?? '';
   if (explicit) return explicit;
 
-  // Derive from PRIVY_APP_SECRET so deploys work without a separate JWT_SECRET env var.
-  const privySecret = process.env.PRIVY_APP_SECRET ?? '';
-  if (privySecret) {
-    return crypto.createHmac('sha256', privySecret).update('ace-jwt-secret-v1').digest('hex');
+  // Derive from the Para API key so deploys work without a separate JWT_SECRET.
+  const paraKey = process.env.PARA_API_KEY ?? process.env.NEXT_PUBLIC_PARA_API_KEY ?? '';
+  if (paraKey) {
+    return crypto.createHmac('sha256', paraKey).update('ace-jwt-secret-v1').digest('hex');
   }
 
   if (process.env.NODE_ENV === 'production') {
-    throw new Error('PRIVY_APP_SECRET (or JWT_SECRET) environment variable is not set.');
+    throw new Error('JWT_SECRET (or PARA_API_KEY) environment variable is not set.');
   }
   return 'ace-dev-secret-not-for-production';
 }
 
-function getPrivyCredentials(): { appId: string; appSecret: string } {
-  const appId     = process.env.NEXT_PUBLIC_PRIVY_APP_ID;
-  const appSecret = process.env.PRIVY_APP_SECRET;
-  if (!appId || !appSecret) {
-    throw new Error(
-      'NEXT_PUBLIC_PRIVY_APP_ID and PRIVY_APP_SECRET must be set in environment variables.',
-    );
+// ─── Para JWT verification (JWKS / ES256) ────────────────────────────────────
+
+function getParaEnv(): 'BETA' | 'PROD' {
+  const raw = (
+    process.env.PARA_ENVIRONMENT ??
+    process.env.NEXT_PUBLIC_PARA_ENVIRONMENT ??
+    'BETA'
+  ).toUpperCase();
+  return raw === 'PROD' || raw === 'PRODUCTION' ? 'PROD' : 'BETA';
+}
+
+function getParaJwksUri(): string {
+  return getParaEnv() === 'PROD'
+    ? 'https://api.getpara.com/.well-known/jwks.json'
+    : 'https://api.beta.getpara.com/.well-known/jwks.json';
+}
+
+// Cache one JWKS client per process (keys are cached + rate-limited internally).
+let jwksClientInstance: JwksClient | null = null;
+function getJwksClient(): JwksClient {
+  if (!jwksClientInstance) {
+    jwksClientInstance = new JwksClient({
+      jwksUri: getParaJwksUri(),
+      cache: true,
+      cacheMaxAge: 10 * 60 * 1000, // 10 minutes
+      rateLimit: true,
+    });
   }
-  return { appId, appSecret };
+  return jwksClientInstance;
 }
 
-function getPrivyClient(): PrivyClient {
-  const { appId, appSecret } = getPrivyCredentials();
-  return new PrivyClient({ appId, appSecret });
+function getSigningKey(kid: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    getJwksClient().getSigningKey(kid, (err, key) => {
+      if (err || !key) return reject(err ?? new Error('Signing key not found.'));
+      resolve(key.getPublicKey());
+    });
+  });
 }
 
+interface ParaJwtWallet {
+  type?: string;
+  address?: string;
+  publicKey?: string;
+}
+
+interface ParaJwtPayload {
+  sub?: string;
+  data?: {
+    userId?: string;
+    wallets?: ParaJwtWallet[];
+    connectedWallets?: ParaJwtWallet[];
+  };
+}
+
+/**
+ * Verifies a Para JWT against Para's JWKS and returns the decoded payload.
+ * Throws if the signature, algorithm, or expiry is invalid.
+ */
+async function verifyParaToken(token: string): Promise<ParaJwtPayload> {
+  const decodedHeader = jwt.decode(token, { complete: true });
+  const kid = decodedHeader && typeof decodedHeader === 'object' ? decodedHeader.header?.kid : undefined;
+  if (!kid) throw new Error('Para token missing key id (kid).');
+
+  const publicKey = await getSigningKey(kid);
+  const payload = jwt.verify(token, publicKey, { algorithms: ['ES256'] });
+  if (typeof payload === 'string') throw new Error('Unexpected Para token payload.');
+  return payload as ParaJwtPayload;
+}
+
+function collectWalletAddresses(payload: ParaJwtPayload): string[] {
+  const all = [
+    ...(payload.data?.wallets ?? []),
+    ...(payload.data?.connectedWallets ?? []),
+  ];
+  return all
+    .map((w) => w.address)
+    .filter((a): a is string => typeof a === 'string' && a.length > 0);
+}
 
 function issueSessionJwt(wallet: string): WalletSession {
   const expiresAt = nowSec() + backendConfig.sessionTtlSeconds;
@@ -114,23 +179,20 @@ function issueSessionJwt(wallet: string): WalletSession {
 // ─── Public API ──────────────────────────────────────────────────────────────
 
 /**
- * Verifies a Privy access token, confirms the wallet is linked to that
- * Privy user, then issues a session JWT for all subsequent API calls.
+ * Verifies a Para JWT, confirms the wallet is attested by that token, then
+ * issues a session JWT for all subsequent API calls.
  */
-export async function createSessionFromPrivyToken(
-  privyToken: string,
+export async function createSessionFromParaToken(
+  paraToken: string,
   wallet: string,
 ): Promise<WalletSession> {
-  const privy = getPrivyClient();
-
-  // Verify the Privy JWT — this cryptographically proves the user is authentic.
-  // We don't do a linked_accounts ownership check because Privy authenticates
-  // Phantom via SIWE (Ethereum flow), so linked_accounts shows chain_type:
-  // 'ethereum' even for Solana wallets. Token validity is sufficient proof.
+  // Cryptographically verify the Para JWT via Para's JWKS. This proves the
+  // token was issued by Para for an authenticated user.
+  let payload: ParaJwtPayload;
   try {
-    await privy.utils().auth().verifyAuthToken(privyToken);
+    payload = await verifyParaToken(paraToken);
   } catch {
-    throw new Error('Invalid or expired Privy session. Please reconnect your wallet.');
+    throw new Error('Invalid or expired Para session. Please reconnect your wallet.');
   }
 
   // Validate that the wallet address looks like a Solana base58 address
@@ -139,6 +201,13 @@ export async function createSessionFromPrivyToken(
     throw new Error(
       'A Solana wallet address is required. Please connect with Phantom or Solflare.',
     );
+  }
+
+  // If the token attests to specific wallets, require the supplied wallet to be
+  // one of them — this prevents pairing a valid token with an arbitrary address.
+  const attested = collectWalletAddresses(payload);
+  if (attested.length > 0 && !attested.includes(wallet)) {
+    throw new Error('Wallet address is not linked to this Para session.');
   }
 
   return issueSessionJwt(wallet);

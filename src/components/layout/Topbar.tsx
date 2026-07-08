@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { Bell, Copy, Check, LogOut, ChevronDown, Shield, Zap } from 'lucide-react';
-import { usePrivy, useSolanaWallets } from '@privy-io/react-auth';
+import { useAuth, useSolanaWallet } from '@/lib/para';
 import { useApp } from '@/context/AppContext';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
@@ -49,9 +49,8 @@ export function Topbar() {
   const pathname = usePathname();
   const meta = PAGE_META[pathname] ?? { title: 'ACE Protocol' };
 
-  const { authenticated } = usePrivy();
-  const { wallets: solanaWallets } = useSolanaWallets();
-  const address = solanaWallets[0]?.address ?? null;
+  const { authenticated } = useAuth();
+  const { address } = useSolanaWallet();
 
   const { insights, disconnectWallet, vault } = useApp();
   const unread = insights.filter(i => i.type === 'alert').length;
