@@ -25,7 +25,7 @@ import React, {
 } from 'react';
 import {
   ParaProvider, Environment,
-  useModal, useLogout, useIssueJwt, useParaStatus, useIsFullyLoggedIn, useWalletState,
+  useModal, useLogout, useParaStatus,
 } from '@getpara/react-sdk';
 import '@getpara/react-sdk/styles.css';
 import { useWallet } from '@solana/wallet-adapter-react';
@@ -56,14 +56,16 @@ export interface AuthState {
   ready: boolean;
   login: () => void;
   logout: () => Promise<void>;
-  getAccessToken: () => Promise<string | null>;
 }
 
 type SendTransaction = ReturnType<typeof useWallet>['sendTransaction'] | undefined;
+type SignMessage = ReturnType<typeof useWallet>['signMessage'];
 
 export interface SolanaWalletState {
   address: string | null;
   sendTransaction: SendTransaction;
+  /** Signs an arbitrary message — used for Sign-In With Solana (SIWS) auth. */
+  signMessage: SignMessage;
   connected: boolean;
 }
 
@@ -81,12 +83,12 @@ const DISCONNECTED_AUTH: AuthState = {
     }
   },
   logout: async () => {},
-  getAccessToken: async () => null,
 };
 
 const DISCONNECTED_WALLET: SolanaWalletState = {
   address: null,
   sendTransaction: undefined,
+  signMessage: undefined,
   connected: false,
 };
 
@@ -104,25 +106,14 @@ export function useSolanaWallet(): SolanaWalletState {
 
 function ParaBridge({ children }: { children: React.ReactNode }) {
   const { isReady } = useParaStatus();
-  // "Fully logged in" = the Para session/verification is complete. This — not a
-  // bare wallet connection — is the prerequisite for issuing a JWT, so gate the
-  // app's `authenticated` on it. Otherwise the app tries to mint a backend JWT
-  // the instant the wallet connects and Para throws "user needs to be logged in".
-  const { data: fullyLoggedIn } = useIsFullyLoggedIn();
   const { openModal } = useModal();
   const { logoutAsync } = useLogout();
-  const { issueJwtAsync } = useIssueJwt();
   const wallet = useWallet();
-  const { publicKey, sendTransaction, connected, disconnect } = wallet;
-  // Para's currently-selected wallet — works for BOTH embedded (email/phone/
-  // social login) and external wallets, so the session address resolves
-  // regardless of how the user signed in.
-  const { selectedWallet } = useWalletState();
+  const { publicKey, sendTransaction, signMessage, connected, disconnect } = wallet;
 
   const login = useCallback(() => {
-    // The Para modal is only mounted once the SDK reaches `isReady` (i.e. the
-    // API key validated for this origin). If it isn't ready, openModal() is a
-    // silent no-op — surface why so it isn't a mystery.
+    // The Para modal is only mounted once the SDK reaches `isReady`. If it isn't
+    // ready, openModal() is a silent no-op — surface why so it isn't a mystery.
     if (!isReady) {
       const origin = typeof window !== 'undefined' ? window.location.origin : '(server)';
       console.warn(
@@ -142,27 +133,22 @@ function ParaBridge({ children }: { children: React.ReactNode }) {
     }
   }, [logoutAsync, disconnect]);
 
-  const getAccessToken = useCallback(async (): Promise<string | null> => {
-    const result = await issueJwtAsync();
-    return result?.token ?? null;
-  }, [issueJwtAsync]);
-
+  // Auth is "connected wallet" — the backend session (SIWS) is established by
+  // AppContext using signMessage. Para is used only to connect the wallet
+  // (connectionOnly), so we don't depend on Para's verify/session state.
   const authValue = useMemo<AuthState>(
-    () => ({ authenticated: Boolean(fullyLoggedIn), ready: isReady, login, logout, getAccessToken }),
-    [fullyLoggedIn, isReady, login, logout, getAccessToken],
+    () => ({ authenticated: connected, ready: isReady, login, logout }),
+    [connected, isReady, login, logout],
   );
 
   const walletValue = useMemo<SolanaWalletState>(
     () => ({
-      // Prefer Para's selected-wallet address (covers embedded + external);
-      // fall back to the wallet-adapter public key for external connections.
-      address: selectedWallet?.address ?? publicKey?.toBase58() ?? null,
-      // sendTransaction is the external wallet-adapter path; embedded-wallet
-      // signing uses a different (web3.js v2) API the on-chain flows don't use yet.
+      address: publicKey?.toBase58() ?? null,
       sendTransaction,
+      signMessage,
       connected,
     }),
-    [selectedWallet?.address, publicKey, sendTransaction, connected],
+    [publicKey, sendTransaction, signMessage, connected],
   );
 
   return (
@@ -240,15 +226,18 @@ function ParaStack({
         },
       },
     },
-    // Validate a signature from the connected wallet and create a Para session —
-    // required for issuing session JWTs to the backend.
-    includeWalletVerification: true,
+    // Connection only — connect the external wallet via wallet-adapter and skip
+    // Para's own verification/session state machine (which was hanging after the
+    // Phantom approval). Ownership is proven by our own Sign-In With Solana flow
+    // (AppContext + /api/auth/nonce + /api/auth/session).
+    connectionOnly: true,
   }), []);
 
   const paraModalConfig = useMemo<ParaProps['paraModalConfig']>(() => ({
-    // Full auth: email + phone (OTP) + social signup AND external wallets
-    // (Phantom / Solflare / Backpack).
-    authLayout: ['AUTH:FULL', 'EXTERNAL:FULL'],
+    // External wallets only (Phantom / Solflare / Backpack). Email/phone/social
+    // require Para's embedded-wallet session, which connectionOnly disables and
+    // which the app's web3.js-v1 signing can't use anyway.
+    authLayout: ['EXTERNAL:FULL'],
     theme: {
       mode: 'dark',
       backgroundColor: '#08060f',

@@ -1,29 +1,28 @@
 // ============================================================
 // ACE Protocol — Session Service
 //
-// Auth flow with Para (getpara.com):
-//   1. Client authenticates with Para (wallet connect + verification).
-//   2. Client issues a Para JWT (useIssueJwt) and sends it + the wallet
-//      address to POST /api/auth/session.
-//   3. Server verifies the Para JWT against Para's JWKS (ES256 public
-//      keys), confirms the wallet is present in the token's claims, and
+// Auth flow (Sign-In With Solana, SIWS):
+//   1. Client connects an external wallet via Para (connection only — Para's
+//      own verification/session machinery is bypassed).
+//   2. Client GETs a sign-in challenge from /api/auth/nonce?wallet=… — a
+//      message plus an HMAC-signed, time-stamped nonce (stateless).
+//   3. The wallet signs the message; client POSTs { wallet, nonce, iat,
+//      nonceSig, signature } to /api/auth/session.
+//   4. Server re-derives the nonce HMAC (proves we issued it), checks freshness,
+//      verifies the ed25519 signature against the wallet's public key, and
 //      issues a short-lived session JWT signed with JWT_SECRET.
-//   4. Client uses the session JWT as Bearer token for all API routes.
-//   5. Protected routes verify the session JWT locally (no Para API call).
+//   5. Protected routes verify the session JWT locally (no external calls).
 //
-// This means:
-//   - Only signature/JWKS verification per login (keys are cached), not per request
-//   - All subsequent API calls are fast local JWT verifications
-//   - Works on Vercel serverless (fully stateless)
+// Fully stateless — works on serverless (Vercel) with no nonce store.
 // ============================================================
 
 import crypto from 'crypto';
-import jwt from 'jsonwebtoken';
-import { JwksClient } from 'jwks-rsa';
+import nacl from 'tweetnacl';
+import bs58 from 'bs58';
 import { backendConfig } from '@root/backend/config';
 import type { WalletSession } from '@root/src/types';
 
-// ─── JWT helpers (pure Node.js crypto) — our own session token ──────────────
+// ─── Session JWT helpers (pure Node.js crypto, HS256) ────────────────────────
 
 function base64url(input: Buffer | string): string {
   const buf = typeof input === 'string' ? Buffer.from(input) : input;
@@ -70,12 +69,11 @@ export function nowSec() {
 }
 
 function getJwtSecret(): string {
-  // Prefer an explicit JWT_SECRET. Fall back to an HMAC of the Para API key
-  // so the server never throws just because JWT_SECRET wasn't explicitly set.
+  // Prefer an explicit JWT_SECRET. Fall back to an HMAC of the Para API key so
+  // the server never throws just because JWT_SECRET wasn't explicitly set.
   const explicit = process.env.JWT_SECRET ?? process.env.ACE_JWT_SECRET ?? '';
   if (explicit) return explicit;
 
-  // Derive from the Para API key so deploys work without a separate JWT_SECRET.
   const paraKey = process.env.PARA_API_KEY ?? process.env.NEXT_PUBLIC_PARA_API_KEY ?? '';
   if (paraKey) {
     return crypto.createHmac('sha256', paraKey).update('ace-jwt-secret-v1').digest('hex');
@@ -87,84 +85,13 @@ function getJwtSecret(): string {
   return 'ace-dev-secret-not-for-production';
 }
 
-// ─── Para JWT verification (JWKS / ES256) ────────────────────────────────────
-
-function getParaEnv(): 'BETA' | 'PROD' {
-  const raw = (
-    process.env.PARA_ENVIRONMENT ??
-    process.env.NEXT_PUBLIC_PARA_ENVIRONMENT ??
-    'BETA'
-  ).toUpperCase();
-  return raw === 'PROD' || raw === 'PRODUCTION' ? 'PROD' : 'BETA';
-}
-
-function getParaJwksUri(): string {
-  return getParaEnv() === 'PROD'
-    ? 'https://api.getpara.com/.well-known/jwks.json'
-    : 'https://api.beta.getpara.com/.well-known/jwks.json';
-}
-
-// Cache one JWKS client per process (keys are cached + rate-limited internally).
-let jwksClientInstance: JwksClient | null = null;
-function getJwksClient(): JwksClient {
-  if (!jwksClientInstance) {
-    jwksClientInstance = new JwksClient({
-      jwksUri: getParaJwksUri(),
-      cache: true,
-      cacheMaxAge: 10 * 60 * 1000, // 10 minutes
-      rateLimit: true,
-    });
+function isValidSolanaAddress(wallet: string): boolean {
+  if (!wallet || wallet.startsWith('0x') || wallet.length < 32 || wallet.length > 44) return false;
+  try {
+    return bs58.decode(wallet).length === 32;
+  } catch {
+    return false;
   }
-  return jwksClientInstance;
-}
-
-function getSigningKey(kid: string): Promise<string> {
-  return new Promise((resolve, reject) => {
-    getJwksClient().getSigningKey(kid, (err, key) => {
-      if (err || !key) return reject(err ?? new Error('Signing key not found.'));
-      resolve(key.getPublicKey());
-    });
-  });
-}
-
-interface ParaJwtWallet {
-  type?: string;
-  address?: string;
-  publicKey?: string;
-}
-
-interface ParaJwtPayload {
-  sub?: string;
-  data?: {
-    userId?: string;
-    wallets?: ParaJwtWallet[];
-    connectedWallets?: ParaJwtWallet[];
-  };
-}
-
-/**
- * Verifies a Para JWT against Para's JWKS and returns the decoded payload.
- * Throws if the signature, algorithm, or expiry is invalid.
- */
-async function verifyParaToken(token: string): Promise<ParaJwtPayload> {
-  const decodedHeader = jwt.decode(token, { complete: true });
-  const kid = decodedHeader && typeof decodedHeader === 'object' ? decodedHeader.header?.kid : undefined;
-  if (!kid) throw new Error('Para token missing key id (kid).');
-
-  const publicKey = await getSigningKey(kid);
-  const payload = jwt.verify(token, publicKey, { algorithms: ['ES256'] });
-  if (typeof payload === 'string') throw new Error('Unexpected Para token payload.');
-  return payload as ParaJwtPayload;
-}
-
-function collectWalletAddresses(payload: ParaJwtPayload): string[] {
-  const all = [
-    ...(payload.data?.wallets ?? []),
-    ...(payload.data?.connectedWallets ?? []),
-  ];
-  return all
-    .map((w) => w.address)
-    .filter((a): a is string => typeof a === 'string' && a.length > 0);
 }
 
 function issueSessionJwt(wallet: string): WalletSession {
@@ -176,46 +103,111 @@ function issueSessionJwt(wallet: string): WalletSession {
   return { wallet, token, expiresAt };
 }
 
-// ─── Public API ──────────────────────────────────────────────────────────────
+// ─── Sign-In With Solana (SIWS) ───────────────────────────────────────────────
+
+const APP_URI =
+  process.env.NEXT_PUBLIC_APP_URL ??
+  process.env.APP_URL ??
+  'https://ace-protocol.vercel.app';
+
+export interface SignInChallenge {
+  message: string;
+  nonce: string;
+  iat: number;
+  nonceSig: string;
+}
+
+function buildSignInMessage(wallet: string, nonce: string, iat: number): string {
+  return [
+    'Sign this message to verify your wallet ownership.',
+    '',
+    `URI: ${APP_URI}`,
+    `Chain ID: mainnet-beta`,
+    `Nonce: ${nonce}`,
+    `Issued At: ${new Date(iat * 1000).toISOString()}`,
+    `Wallet: ${wallet}`,
+  ].join('\n');
+}
+
+function nonceSignature(wallet: string, nonce: string, iat: number): string {
+  return crypto
+    .createHmac('sha256', getJwtSecret())
+    .update(`${wallet}.${nonce}.${iat}`)
+    .digest('hex');
+}
 
 /**
- * Verifies a Para JWT, confirms the wallet is attested by that token, then
- * issues a session JWT for all subsequent API calls.
+ * Issues a stateless sign-in challenge for a wallet. The nonce is HMAC-signed
+ * with the server secret so we can later confirm we issued it without storage.
  */
-export async function createSessionFromParaToken(
-  paraToken: string,
-  wallet: string,
-): Promise<WalletSession> {
-  // Cryptographically verify the Para JWT via Para's JWKS. This proves the
-  // token was issued by Para for an authenticated user.
-  let payload: ParaJwtPayload;
+export function issueSignInChallenge(wallet: string): SignInChallenge {
+  if (!isValidSolanaAddress(wallet)) {
+    throw new Error('A valid Solana wallet address is required.');
+  }
+  const iat = nowSec();
+  const nonce = crypto.randomBytes(16).toString('hex');
+  return {
+    message: buildSignInMessage(wallet, nonce, iat),
+    nonce,
+    iat,
+    nonceSig: nonceSignature(wallet, nonce, iat),
+  };
+}
+
+/**
+ * Verifies a signed sign-in challenge and issues a session JWT.
+ * Confirms: (a) we issued the nonce, (b) it's fresh, (c) the ed25519 signature
+ * over the reconstructed message is valid for the wallet's public key.
+ */
+export function createSessionFromSignature(params: {
+  wallet: string;
+  nonce: string;
+  iat: number;
+  nonceSig: string;
+  signature: string;
+}): WalletSession {
+  const { wallet, nonce, iat, nonceSig, signature } = params;
+
+  if (!isValidSolanaAddress(wallet)) {
+    throw new Error('A valid Solana wallet address is required. Connect with Phantom or Solflare.');
+  }
+
+  // 1. Confirm the nonce was issued by this server (untampered).
+  const expectedSig = nonceSignature(wallet, nonce, iat);
+  if (
+    expectedSig.length !== nonceSig.length ||
+    !crypto.timingSafeEqual(Buffer.from(expectedSig), Buffer.from(nonceSig))
+  ) {
+    throw new Error('Invalid or tampered sign-in challenge. Please reconnect.');
+  }
+
+  // 2. Freshness — reject stale challenges (replay window).
+  if (!Number.isFinite(iat) || nowSec() - iat > backendConfig.nonceTtlSeconds) {
+    throw new Error('Sign-in challenge expired. Please try again.');
+  }
+
+  // 3. Verify the ed25519 signature over the exact message we would have issued.
+  const message = buildSignInMessage(wallet, nonce, iat);
+  const messageBytes = new TextEncoder().encode(message);
+  let verified = false;
   try {
-    payload = await verifyParaToken(paraToken);
-  } catch {
-    throw new Error('Invalid or expired Para session. Please reconnect your wallet.');
-  }
-
-  // Validate that the wallet address looks like a Solana base58 address
-  // (32–44 chars, no 0x prefix) so we don't accidentally store an EVM address.
-  if (!wallet || wallet.startsWith('0x') || wallet.length < 32 || wallet.length > 44) {
-    throw new Error(
-      'A Solana wallet address is required. Please connect with Phantom or Solflare.',
+    verified = nacl.sign.detached.verify(
+      messageBytes,
+      bs58.decode(signature),
+      bs58.decode(wallet),
     );
+  } catch {
+    verified = false;
   }
-
-  // If the token attests to specific wallets, require the supplied wallet to be
-  // one of them — this prevents pairing a valid token with an arbitrary address.
-  const attested = collectWalletAddresses(payload);
-  if (attested.length > 0 && !attested.includes(wallet)) {
-    throw new Error('Wallet address is not linked to this Para session.');
+  if (!verified) {
+    throw new Error('Signature verification failed. Please reconnect your wallet.');
   }
 
   return issueSessionJwt(wallet);
 }
 
-/**
- * Validates a session JWT. Returns the session or null if expired/invalid.
- */
+// ─── Session validation ───────────────────────────────────────────────────────
+
 export function getSession(token: string | null | undefined): WalletSession | null {
   if (!token) return null;
   try {

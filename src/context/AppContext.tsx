@@ -1,6 +1,7 @@
 'use client';
 
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import bs58 from 'bs58';
 import { useAuth, useSolanaWallet } from '@/lib/para';
 import type {
   CashflowInsight,
@@ -111,9 +112,9 @@ function getEmptyDataState(
 // ─── Provider ───────────────────────────────────────────────────────────────
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
-  // ── Para auth ───────────────────────────────────────────────────────────
-  const { authenticated, getAccessToken, logout, ready: authReady } = useAuth();
-  const { address: walletAddress } = useSolanaWallet();
+  // ── Para auth (wallet connection) + SIWS session ──────────────────────────
+  const { authenticated, logout, ready: authReady } = useAuth();
+  const { address: walletAddress, signMessage } = useSolanaWallet();
 
   const isConnected = authenticated && !!walletAddress;
 
@@ -211,14 +212,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    // 3. Get a fresh Para access token (JWT) and exchange it for our session JWT
-    const paraToken = await getAccessToken();
-    if (!paraToken) throw new Error('Para session unavailable. Please reconnect your wallet.');
+    // 3. Sign-In With Solana: fetch a challenge, sign it, exchange for a session JWT
+    if (!signMessage) {
+      throw new Error('Your wallet does not support message signing. Please use Phantom, Solflare, or Backpack.');
+    }
+
+    const nonceRes = await fetch(`/api/auth/nonce?wallet=${encodeURIComponent(walletAddress)}`);
+    if (!nonceRes.ok) throw new Error('Could not start sign-in. Please try again.');
+    const challenge = (await nonceRes.json()) as {
+      message: string; nonce: string; iat: number; nonceSig: string;
+    };
+
+    let signature: string;
+    try {
+      const signed = await signMessage(new TextEncoder().encode(challenge.message));
+      signature = bs58.encode(signed);
+    } catch {
+      throw new Error('You cancelled the sign request. Click “Sign in” to try again.');
+    }
 
     const res = await fetch('/api/auth/session', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ paraToken, wallet: walletAddress }),
+      body: JSON.stringify({
+        wallet: walletAddress,
+        nonce: challenge.nonce,
+        iat: challenge.iat,
+        nonceSig: challenge.nonceSig,
+        signature,
+      }),
     });
 
     const text = await res.text();
@@ -239,7 +261,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(session));
     }
     return session;
-  }, [isConnected, walletAddress, sessionToken, sessionWallet, getAccessToken, setSession]);
+  }, [isConnected, walletAddress, sessionToken, sessionWallet, signMessage, setSession]);
 
   // ── Data loading ─────────────────────────────────────────────────────────
   // Always clears cached balances/analytics before re-fetching to prevent stale
